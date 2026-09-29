@@ -1,5 +1,9 @@
 # dbcli
 
+[![CI](https://github.com/diogoaalmeida/dbcli/actions/workflows/ci.yml/badge.svg)](https://github.com/diogoaalmeida/dbcli/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/diogoaalmeida/dbcli.svg)](https://pkg.go.dev/github.com/diogoaalmeida/dbcli)
+[![Go Report Card](https://goreportcard.com/badge/github.com/diogoaalmeida/dbcli)](https://goreportcard.com/report/github.com/diogoaalmeida/dbcli)
+
 A small, read-only SQL CLI built for AI agents. It's meant to be a tool call
 in an agent's toolbox: every result is a stable JSON envelope on stdout, and
 every query is constrained so an agent (or a prompt-injected one) can't
@@ -12,10 +16,10 @@ Postgres ships today.
 
 ## Why this is safe to point at a real database
 
-- **Read-only, enforced twice.** Every query is first classified — only
+- **Read-only, enforced twice.** Every query is first classified: only
   `SELECT`, `WITH`, `EXPLAIN`, and `TABLE` statements are accepted, and only
   one statement at a time. Then, regardless of what the classifier decided,
-  the query still runs inside a Postgres `READ ONLY` transaction — so even a
+  the query still runs inside a Postgres `READ ONLY` transaction, so even a
   gap in the classifier can't result in a write.
 - **Statement timeout.** Every query has a timeout (default 5s, `--timeout`
   to override) so a runaway query can't hang the agent or the database.
@@ -23,7 +27,7 @@ Postgres ships today.
   hard ceiling 5000 even if you ask for more) so an agent can't accidentally
   pull millions of rows into its context window.
 - **No raw identifier interpolation.** `dbcli sample <table>` checks the
-  table exists via `information_schema` first, then safely quotes it — it
+  table exists via `information_schema` first, then safely quotes it. It
   never string-interpolates a table name into SQL.
 - **You should still connect with a least-privilege role.** All of the above
   is defense in depth, not a replacement for using a database user that
@@ -76,20 +80,17 @@ See `.env.example` for both forms.
 
 ## Commands
 
-```bash
-dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
-dbcli explain "<SQL>" [--profile NAME] [--analyze]
-dbcli schemas [--profile NAME]
-dbcli schema [--profile NAME] [--schema public]
-dbcli describe <table> [--profile NAME] [--schema public]
-dbcli sample <table> [--profile NAME] [--limit 20]
-dbcli profiles list
-dbcli profiles add <name> <dsn>
-dbcli profiles remove <name>
-dbcli version
-```
+- `query`: run a validated, read-only query
+- `explain`: print the query plan (`--analyze` for `EXPLAIN ANALYZE`)
+- `schemas`: list non-system schemas with their table counts
+- `schema`: list tables in one schema
+- `describe`: show a table's columns, indexes, and foreign keys
+- `sample`: print up to N rows from a table
+- `profiles`: manage named connection profiles (`list` / `add` / `remove`)
 
-Every result — success or failure — is JSON on stdout:
+Run `dbcli <command> --help` or see the [package documentation](https://pkg.go.dev/github.com/diogoaalmeida/dbcli) for the full flag reference.
+
+Every result, success or failure, is JSON on stdout:
 
 ```json
 {
@@ -108,8 +109,8 @@ Every result — success or failure — is JSON on stdout:
 ```
 
 Numbers (`int4`, `int8`, `numeric`, etc.) are serialized as JSON strings to
-avoid precision loss for large integers and decimals — parse them as needed
-on the consuming side. Timestamps are RFC3339. `bytea` is base64.
+avoid precision loss for large integers and decimals, so parse them as
+needed on the consuming side. Timestamps are RFC3339. `bytea` is base64.
 
 ## Using it from an agent
 
@@ -128,7 +129,7 @@ go vet ./...
 go test ./...
 ```
 
-Integration tests in `internal/postgres` need a local Postgres — the fixture
+Integration tests in `internal/postgres` need a local Postgres. The fixture
 connection string only ever points at `localhost` with a throwaway password,
 never a real credential:
 
@@ -139,4 +140,4 @@ go test ./internal/postgres/...
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
