@@ -32,6 +32,12 @@ type TableInfo struct {
 	EstimatedRows int64  `json:"estimated_rows"`
 }
 
+// SchemaInfo is one row of a schemas listing.
+type SchemaInfo struct {
+	Name       string `json:"name"`
+	TableCount int    `json:"table_count"`
+}
+
 // ColumnInfo describes one column of a described table.
 type ColumnInfo struct {
 	Name     string  `json:"name"`
@@ -75,6 +81,7 @@ type QueryOptions struct {
 type Conn interface {
 	Query(ctx context.Context, sql string, opts QueryOptions) (*QueryResult, error)
 	Explain(ctx context.Context, sql string, opts QueryOptions) (*QueryResult, error)
+	ListSchemas(ctx context.Context) ([]SchemaInfo, error)
 	ListSchema(ctx context.Context, schema string) ([]TableInfo, error)
 	DescribeTable(ctx context.Context, schema, table string) (*TableDescription, error)
 	Sample(ctx context.Context, schema, table string, opts QueryOptions) (*QueryResult, error)
