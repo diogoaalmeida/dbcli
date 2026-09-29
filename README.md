@@ -110,7 +110,9 @@ Every result, success or failure, is JSON on stdout:
 
 Numbers (`int4`, `int8`, `numeric`, etc.) are serialized as JSON strings to
 avoid precision loss for large integers and decimals, so parse them as
-needed on the consuming side. Timestamps are RFC3339. `bytea` is base64.
+needed on the consuming side. `timestamp`/`timestamptz` are RFC3339;
+`date` is a plain `"YYYY-MM-DD"` string with no time component. `bytea` is
+base64.
 
 ## Using it from an agent
 
