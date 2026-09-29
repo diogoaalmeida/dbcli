@@ -114,32 +114,6 @@ needed on the consuming side. `timestamp`/`timestamptz` are RFC3339;
 `date` is a plain `"YYYY-MM-DD"` string with no time component. `bytea` is
 base64.
 
-## Using it from an agent
-
-Point your agent at the `dbcli` binary as a shell tool. A typical flow:
-`dbcli schemas` to see what schemas exist, `dbcli schema --schema X` to see
-what tables are in one, `dbcli describe <table> --schema X` to see its
-columns/indexes/foreign keys, then `dbcli query "..."` to actually answer a
-question. Each step returns the same predictable JSON shape, so parsing
-logic doesn't need to special-case each command.
-
-## Development
-
-```bash
-go build ./...
-go vet ./...
-go test ./...
-```
-
-Integration tests in `internal/postgres` need a local Postgres. The fixture
-connection string only ever points at `localhost` with a throwaway password,
-never a real credential:
-
-```bash
-docker run -d --name dbcli-test-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:15
-go test ./internal/postgres/...
-```
-
 ## License
 
 MIT, see [LICENSE](LICENSE).
