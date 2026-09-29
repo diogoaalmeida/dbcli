@@ -1,4 +1,5 @@
 /dist/
+/dbcli
 .env
 profiles.env
 *.local.env
