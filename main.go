@@ -3,12 +3,27 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/diogoaalmeida/dbcli/cmd"
 )
 
-// version is overridden at release build time via -ldflags "-X main.version=...".
+// version is overridden at release build time via -ldflags "-X main.version=...",
+// which only applies to goreleaser's prebuilt binaries. Everyone else gets
+// here via `go install github.com/diogoaalmeida/dbcli@<version>`, so
+// resolveVersion() falls back to the module version Go embeds automatically
+// in that case.
 var version = "dev"
+
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -32,7 +47,7 @@ func main() {
 	case "profiles":
 		os.Exit(cmd.Profiles(os.Args[2:]))
 	case "version", "--version":
-		fmt.Println("dbcli " + version)
+		fmt.Println("dbcli " + resolveVersion())
 	case "help", "--help", "-h":
 		printUsage()
 	default:
