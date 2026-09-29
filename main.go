@@ -1,6 +1,3 @@
-// dbcli is a read-only SQL CLI designed for AI agents: every result is a
-// stable JSON envelope on stdout, and every query runs inside a read-only,
-// timeout-bounded, row-capped transaction. See README.md for setup.
 package main
 
 import (
@@ -46,7 +43,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprint(os.Stderr, `dbcli — read-only SQL for AI agents
+	fmt.Fprint(os.Stderr, `dbcli: read-only SQL for AI agents
 
 Usage:
   dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
