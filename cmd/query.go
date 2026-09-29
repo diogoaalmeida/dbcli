@@ -16,14 +16,15 @@ func Query(args []string) int {
 	limit := fs.Int("limit", 0, "max rows to return (default 500, hard ceiling 5000)")
 	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
 	format := fs.String("format", "json", "output format: json|table")
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args, nil)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		fmt.Fprintln(os.Stderr, `usage: dbcli query [flags] "<SQL>"`)
 		return 2
 	}
-	sql := fs.Arg(0)
+	sql := positional[0]
 
 	ctx := context.Background()
 	conn, err := connect(ctx, *profile, *driverFlag)

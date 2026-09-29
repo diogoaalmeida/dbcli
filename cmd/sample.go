@@ -16,14 +16,15 @@ func Sample(args []string) int {
 	schema := fs.String("schema", "public", "schema the table belongs to")
 	limit := fs.Int("limit", 20, "rows to sample")
 	format := fs.String("format", "json", "output format: json|table")
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args, nil)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: dbcli sample [flags] <table>")
 		return 2
 	}
-	table := fs.Arg(0)
+	table := positional[0]
 
 	ctx := context.Background()
 	conn, err := connect(ctx, *profile, *driverFlag)

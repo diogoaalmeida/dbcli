@@ -12,14 +12,15 @@ func Describe(args []string) int {
 	profile := fs.String("profile", "", "named connection profile")
 	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
 	schema := fs.String("schema", "public", "schema the table belongs to")
-	if err := fs.Parse(args); err != nil {
+	flagArgs, positional := splitFlagsAndPositional(args, nil)
+	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
+	if len(positional) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: dbcli describe [flags] <table>")
 		return 2
 	}
-	table := fs.Arg(0)
+	table := positional[0]
 
 	ctx := context.Background()
 	conn, err := connect(ctx, *profile, *driverFlag)
