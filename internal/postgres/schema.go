@@ -24,6 +24,42 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'v', 'm') AND n.nspname = $1
 ORDER BY c.relname`
 
+const listSchemasSQL = `
+SELECT n.nspname AS name,
+       count(c.oid) FILTER (WHERE c.relkind IN ('r', 'v', 'm')) AS table_count
+FROM pg_catalog.pg_namespace n
+LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND n.nspname NOT LIKE 'pg\_toast%' ESCAPE '\'
+  AND n.nspname NOT LIKE 'pg\_temp\_%' ESCAPE '\'
+GROUP BY n.nspname
+ORDER BY n.nspname`
+
+// ListSchemas lists every non-system schema in the database, with a count
+// of the tables/views/materialized views each one holds. It's the entry
+// point for exploring an unfamiliar database: run this first, then
+// ListSchema(name) to see what's inside one of the schemas it reports.
+func (c *conn) ListSchemas(ctx context.Context) ([]driver.SchemaInfo, error) {
+	rows, err := c.pool.Query(ctx, listSchemasSQL)
+	if err != nil {
+		return nil, fmt.Errorf("list schemas: %w", err)
+	}
+	defer rows.Close()
+
+	var schemas []driver.SchemaInfo
+	for rows.Next() {
+		var s driver.SchemaInfo
+		if err := rows.Scan(&s.Name, &s.TableCount); err != nil {
+			return nil, fmt.Errorf("scan schema row: %w", err)
+		}
+		schemas = append(schemas, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list schemas iteration: %w", err)
+	}
+	return schemas, nil
+}
+
 func (c *conn) ListSchema(ctx context.Context, schema string) ([]driver.TableInfo, error) {
 	if schema == "" {
 		schema = "public"
