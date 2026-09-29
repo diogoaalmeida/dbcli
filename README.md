@@ -79,6 +79,7 @@ See `.env.example` for both forms.
 ```bash
 dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
 dbcli explain "<SQL>" [--profile NAME] [--analyze]
+dbcli schemas [--profile NAME]
 dbcli schema [--profile NAME] [--schema public]
 dbcli describe <table> [--profile NAME] [--schema public]
 dbcli sample <table> [--profile NAME] [--limit 20]
@@ -113,10 +114,11 @@ on the consuming side. Timestamps are RFC3339. `bytea` is base64.
 ## Using it from an agent
 
 Point your agent at the `dbcli` binary as a shell tool. A typical flow:
-`dbcli schema` to see what tables exist, `dbcli describe <table>` to see
+`dbcli schemas` to see what schemas exist, `dbcli schema --schema X` to see
+what tables are in one, `dbcli describe <table> --schema X` to see its
 columns/indexes/foreign keys, then `dbcli query "..."` to actually answer a
-question. All three return the same predictable JSON shape, so parsing logic
-doesn't need to special-case each command.
+question. Each step returns the same predictable JSON shape, so parsing
+logic doesn't need to special-case each command.
 
 ## Development
 

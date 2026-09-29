@@ -24,6 +24,8 @@ func main() {
 		os.Exit(cmd.Query(os.Args[2:]))
 	case "explain":
 		os.Exit(cmd.Explain(os.Args[2:]))
+	case "schemas":
+		os.Exit(cmd.Schemas(os.Args[2:]))
 	case "schema":
 		os.Exit(cmd.Schema(os.Args[2:]))
 	case "describe":
@@ -49,6 +51,7 @@ func printUsage() {
 Usage:
   dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
   dbcli explain "<SQL>" [--profile NAME] [--analyze]
+  dbcli schemas [--profile NAME]
   dbcli schema [--profile NAME] [--schema public]
   dbcli describe <table> [--profile NAME] [--schema public]
   dbcli sample <table> [--profile NAME] [--limit 20]
