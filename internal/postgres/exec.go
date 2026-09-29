@@ -103,7 +103,7 @@ func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, li
 		}
 		rowMap := make(map[string]any, len(columns))
 		for i, col := range columns {
-			rowMap[col.Name] = marshalValue(values[i])
+			rowMap[col.Name] = marshalValue(values[i], col.Type)
 		}
 		resultRows = append(resultRows, rowMap)
 	}
@@ -143,9 +143,13 @@ func typeName(tm *pgtype.Map, oid uint32) string {
 
 // marshalValue converts a pgx-decoded Go value into a JSON-safe value per
 // dbcli's output rules: NULL stays null, all numeric kinds become strings
-// (avoids float precision loss on numeric/bigint for JSON consumers),
-// timestamps become RFC3339, and byte slices become base64.
-func marshalValue(v any) any {
+// (avoids float precision loss on numeric/bigint for JSON consumers), byte
+// slices become base64, and time.Time becomes either a date-only string
+// ("2006-01-02") or a full RFC3339 timestamp depending on pgType — pgx
+// decodes both `date` and `timestamp(tz)` into the same Go type, so this is
+// the only place that still knows which one a given value came from.
+// pgType is the source column's Postgres type name (e.g. "date", "_uuid").
+func marshalValue(v any, pgType string) any {
 	if v == nil {
 		return nil
 	}
@@ -154,6 +158,9 @@ func marshalValue(v any) any {
 	case []byte:
 		return base64.StdEncoding.EncodeToString(val)
 	case time.Time:
+		if pgType == "date" {
+			return val.Format("2006-01-02")
+		}
 		return val.UTC().Format(time.RFC3339Nano)
 	}
 
@@ -170,9 +177,13 @@ func marshalValue(v any) any {
 		}
 		fallthrough
 	case reflect.Slice:
+		// Postgres array type names are the element's name prefixed with
+		// "_" (e.g. "_date", "_uuid"); strip it so elements format the same
+		// way the scalar column type would.
+		elemType := strings.TrimPrefix(pgType, "_")
 		out := make([]any, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
-			out[i] = marshalValue(rv.Index(i).Interface())
+			out[i] = marshalValue(rv.Index(i).Interface(), elemType)
 		}
 		return out
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -184,7 +195,7 @@ func marshalValue(v any) any {
 	case reflect.Struct, reflect.Ptr:
 		if valuer, ok := v.(sqldriver.Valuer); ok {
 			if dv, err := valuer.Value(); err == nil {
-				return marshalValue(dv)
+				return marshalValue(dv, pgType)
 			}
 		}
 		return fmt.Sprintf("%v", v)
