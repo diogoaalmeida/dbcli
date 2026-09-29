@@ -1,0 +1,4 @@
+/dist/
+.env
+profiles.env
+*.local.env
