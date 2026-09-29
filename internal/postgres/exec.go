@@ -163,7 +163,13 @@ func marshalValue(v any) any {
 	}
 
 	switch rv.Kind() {
-	case reflect.Slice, reflect.Array:
+	case reflect.Array:
+		if rv.Len() == 16 && rv.Type().Elem().Kind() == reflect.Uint8 {
+			// pgx decodes uuid columns into [16]byte, not a string.
+			return formatUUID(rv)
+		}
+		fallthrough
+	case reflect.Slice:
 		out := make([]any, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
 			out[i] = marshalValue(rv.Index(i).Interface())
@@ -185,4 +191,14 @@ func marshalValue(v any) any {
 	default:
 		return v
 	}
+}
+
+// formatUUID renders a [16]byte reflect.Value in canonical
+// 8-4-4-4-12 hex form, e.g. "38f9d7d7-d4ed-4a1e-9c1a-2f6b7c8d9e0f".
+func formatUUID(rv reflect.Value) string {
+	var b [16]byte
+	for i := range b {
+		b[i] = byte(rv.Index(i).Uint())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
