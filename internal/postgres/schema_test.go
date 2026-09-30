@@ -34,11 +34,11 @@ func TestListSchema_ListsTableInGivenSchema(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
 
-	if _, err := c.pool.Exec(ctx, "create table if not exists dbcli_schema_list_test (id serial primary key)"); err != nil {
+	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_schema_list_test (id serial primary key)"); err != nil {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pool.Exec(context.Background(), "drop table if exists dbcli_schema_list_test")
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_list_test")
 	})
 
 	tables, err := c.ListSchema(ctx, "public")
@@ -72,11 +72,11 @@ func TestDescribeTable_ReturnsColumnsIndexesAndForeignKeys(t *testing.T) {
 			name text not null
 		);
 	`
-	if _, err := c.pool.Exec(ctx, setup); err != nil {
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pool.Exec(context.Background(), "drop table if exists dbcli_describe_child_test, dbcli_describe_parent_test")
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_child_test, dbcli_describe_parent_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_describe_child_test")
@@ -108,16 +108,16 @@ func TestSample_ReturnsRowsAndRespectsLimit(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
 
-	if _, err := c.pool.Exec(ctx, "create table if not exists dbcli_sample_test (id serial primary key)"); err != nil {
+	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_sample_test (id serial primary key)"); err != nil {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		if _, err := c.pool.Exec(ctx, "insert into dbcli_sample_test default values"); err != nil {
+		if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_sample_test default values"); err != nil {
 			t.Fatalf("test fixture insert: %v", err)
 		}
 	}
 	t.Cleanup(func() {
-		c.pool.Exec(context.Background(), "drop table if exists dbcli_sample_test")
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_sample_test")
 	})
 
 	result, err := c.Sample(ctx, "public", "dbcli_sample_test", driver.QueryOptions{Limit: 2})

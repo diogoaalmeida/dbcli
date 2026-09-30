@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/diogoaalmeida/dbcli/internal/driver"
 )
@@ -24,12 +23,11 @@ const (
 )
 
 type conn struct {
-	pool *pgxpool.Pool
+	pgxConn *pgx.Conn
 }
 
 func (c *conn) Close(ctx context.Context) error {
-	c.pool.Close()
-	return nil
+	return c.pgxConn.Close(ctx)
 }
 
 // Query validates sql, wraps it in a hard row-limit ceiling, and runs it
@@ -71,7 +69,7 @@ func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, li
 		timeoutSeconds = defaultTimeoutSeconds
 	}
 
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := c.pgxConn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, fmt.Errorf("begin read-only transaction: %w", err)
 	}

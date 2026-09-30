@@ -32,11 +32,11 @@ func TestQuery_RichColumnTypes(t *testing.T) {
 		insert into dbcli_valuetypes_test (amount, tags, metadata, payload, is_active, note)
 		values (1234.56, array['a','b'], '{"k":"v"}'::jsonb, '\xdeadbeef'::bytea, true, null);
 	`
-	if _, err := c.pool.Exec(ctx, setup); err != nil {
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pool.Exec(context.Background(), "drop table if exists dbcli_valuetypes_test")
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_valuetypes_test")
 	})
 
 	result, err := c.Query(ctx, "select id, amount, tags, metadata, payload, is_active, note from dbcli_valuetypes_test", driver.QueryOptions{})

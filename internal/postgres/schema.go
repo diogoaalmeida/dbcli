@@ -40,7 +40,7 @@ ORDER BY n.nspname`
 // point for exploring an unfamiliar database: run this first, then
 // ListSchema(name) to see what's inside one of the schemas it reports.
 func (c *conn) ListSchemas(ctx context.Context) ([]driver.SchemaInfo, error) {
-	rows, err := c.pool.Query(ctx, listSchemasSQL)
+	rows, err := c.pgxConn.Query(ctx, listSchemasSQL)
 	if err != nil {
 		return nil, fmt.Errorf("list schemas: %w", err)
 	}
@@ -65,7 +65,7 @@ func (c *conn) ListSchema(ctx context.Context, schema string) ([]driver.TableInf
 		schema = "public"
 	}
 
-	rows, err := c.pool.Query(ctx, listSchemaSQL, schema)
+	rows, err := c.pgxConn.Query(ctx, listSchemaSQL, schema)
 	if err != nil {
 		return nil, fmt.Errorf("list schema: %w", err)
 	}
@@ -126,7 +126,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 	}
 
 	var exists bool
-	if err := c.pool.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
+	if err := c.pgxConn.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check table exists: %w", err)
 	}
 	if !exists {
@@ -135,7 +135,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 
 	desc := &driver.TableDescription{Schema: schema, Table: table}
 
-	rows, err := c.pool.Query(ctx, columnsSQL, schema, table)
+	rows, err := c.pgxConn.Query(ctx, columnsSQL, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe columns: %w", err)
 	}
@@ -153,7 +153,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 		return nil, fmt.Errorf("describe columns iteration: %w", rowsErr)
 	}
 
-	idxRows, err := c.pool.Query(ctx, indexesSQL, schema, table)
+	idxRows, err := c.pgxConn.Query(ctx, indexesSQL, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe indexes: %w", err)
 	}
@@ -171,7 +171,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 		return nil, fmt.Errorf("describe indexes iteration: %w", idxErr)
 	}
 
-	fkRows, err := c.pool.Query(ctx, foreignKeysSQL, schema, table)
+	fkRows, err := c.pgxConn.Query(ctx, foreignKeysSQL, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe foreign keys: %w", err)
 	}
@@ -202,7 +202,7 @@ func (c *conn) Sample(ctx context.Context, schema, table string, opts driver.Que
 	}
 
 	var exists bool
-	if err := c.pool.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
+	if err := c.pgxConn.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check table exists: %w", err)
 	}
 	if !exists {

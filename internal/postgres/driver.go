@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/diogoaalmeida/dbcli/internal/driver"
 )
@@ -16,14 +16,14 @@ func init() {
 	driver.Register("postgresql", pgDriver{})
 }
 
+// Connect uses a single pgx.Conn rather than a pgxpool.Pool: dbcli connects
+// once, runs one operation, and exits, so a connection pool (min/max size,
+// idle eviction, multiple physical connections) is more machinery than a
+// single-shot CLI needs.
 func (pgDriver) Connect(ctx context.Context, dsn string) (driver.Conn, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	pgxConn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ping: %w", err)
-	}
-	return &conn{pool: pool}, nil
+	return &conn{pgxConn: pgxConn}, nil
 }
