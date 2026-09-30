@@ -69,12 +69,17 @@ export DATABASE_URL="postgres://dbcli_agent:change-me@localhost:5432/mydb?sslmod
 dbcli query "select 1"
 ```
 
-...or manage named profiles, stored in `~/.config/dbcli/profiles.env`:
+...or manage named profiles, stored in `~/.config/dbcli/profiles.env`. The
+DSN carries a password, so prefer piping it in over passing it as a plain
+argument, which shell history and `ps` can both expose:
 
 ```bash
-dbcli profiles add dev "postgres://dbcli_agent:change-me@localhost:5432/mydb?sslmode=disable"
+echo "postgres://dbcli_agent:change-me@localhost:5432/mydb?sslmode=disable" | dbcli profiles add dev
 dbcli query "select 1" --profile dev
 ```
+
+`dbcli profiles add dev "<dsn>"` still works if you pass the DSN directly,
+with that tradeoff.
 
 See `.env.example` for both forms.
 

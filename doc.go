@@ -25,8 +25,10 @@ Commands:
 	    Show a table's columns, indexes, and foreign keys.
 	sample <table> [--profile NAME] [--limit 20]
 	    Print up to N rows from a table.
-	profiles list | add <name> <dsn> | remove <name>
+	profiles list | add <name> [dsn] | remove <name>
 	    Manage named connection profiles in ~/.config/dbcli/profiles.env.
+	    If dsn is omitted, add reads it from stdin instead, so the
+	    password-bearing DSN doesn't have to appear as a plain argument.
 	version
 	    Print the build version.
 
