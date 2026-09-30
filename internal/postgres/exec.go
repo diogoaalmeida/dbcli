@@ -45,7 +45,7 @@ func (c *conn) Query(ctx context.Context, sql string, opts driver.QueryOptions) 
 
 // Explain validates sql, prefixes it with EXPLAIN (or EXPLAIN ANALYZE), and
 // runs it inside the same read-only, timeout-bounded transaction. No row
-// limit is applied — EXPLAIN's output rows are plan lines, not data rows.
+// limit is applied. EXPLAIN's output rows are plan lines, not data rows.
 func (c *conn) Explain(ctx context.Context, sql string, opts driver.QueryOptions) (*driver.QueryResult, error) {
 	validated, err := ValidateQuery(sql)
 	if err != nil {
@@ -164,7 +164,7 @@ func typeName(tm *pgtype.Map, oid uint32) string {
 // dbcli's output rules: NULL stays null, all numeric kinds become strings
 // (avoids float precision loss on numeric/bigint for JSON consumers), byte
 // slices become base64, and time.Time becomes either a date-only string
-// ("2006-01-02") or a full RFC3339 timestamp depending on pgType — pgx
+// ("2006-01-02") or a full RFC3339 timestamp depending on pgType. pgx
 // decodes both `date` and `timestamp(tz)` into the same Go type, so this is
 // the only place that still knows which one a given value came from.
 // pgType is the source column's Postgres type name (e.g. "date", "_uuid").
@@ -177,8 +177,8 @@ func marshalValue(v any, pgType string) any {
 	case []byte:
 		return base64.StdEncoding.EncodeToString(val)
 	case net.HardwareAddr:
-		// pgx decodes macaddr into net.HardwareAddr, a named []byte type —
-		// the []byte case above only matches the exact type, not this one,
+		// pgx decodes macaddr into net.HardwareAddr, a named []byte type.
+		// The []byte case above only matches the exact type, not this one,
 		// so without this it falls through to the generic slice case and
 		// renders as an array of raw byte numbers instead of "aa:bb:...".
 		return val.String()
@@ -223,12 +223,15 @@ func marshalValue(v any, pgType string) any {
 				return marshalValue(dv, pgType)
 			}
 		}
-		// No Valuer (e.g. range types: pgtype.Range[T] has no Value()
-		// method): return the struct as-is rather than fmt.Sprintf-ing it.
-		// json.Marshal renders its exported fields as a real JSON object
-		// (e.g. {"Lower":"1","Upper":"10",...}) instead of Go's %v syntax
-		// dump ("{1 10 i e true}"), which isn't valid JSON-consumer-friendly
-		// output at all.
+		if result, ok := marshalRange(rv, pgType); ok {
+			return result
+		}
+		// No Valuer and not a range: fall back to the struct's exported
+		// fields as a plain JSON object (via json.Marshal on the raw
+		// value) rather than fmt.Sprintf-ing it into an unparseable Go
+		// %v dump. This only affects types dbcli doesn't otherwise
+		// recognize; every type it does recognize (numeric, ranges,
+		// uuid, macaddr, ...) is handled above and never reaches here.
 		return v
 	default:
 		return v
@@ -243,4 +246,79 @@ func formatUUID(rv reflect.Value) string {
 		b[i] = byte(rv.Index(i).Uint())
 	}
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// rangeElementTypes maps a Postgres range type name to the Postgres type
+// name of its bounds, so a range's Lower/Upper values go through the same
+// numeric-as-string / date-vs-timestamp formatting as a scalar column of
+// that type would, instead of bypassing it.
+var rangeElementTypes = map[string]string{
+	"int4range": "int4",
+	"int8range": "int8",
+	"numrange":  "numeric",
+	"daterange": "date",
+	"tsrange":   "timestamp",
+	"tstzrange": "timestamptz",
+}
+
+// marshalRange handles pgtype.Range[T] for any T. Go generics can't be
+// matched with a type-switch case (pgtype.Range[int32] and
+// pgtype.Range[pgtype.Numeric] are different concrete types with nothing in
+// common at the type-switch level), so this duck-types the struct shape
+// instead: Lower/Upper/LowerType/UpperType/Valid fields, with LowerType and
+// UpperType specifically typed as pgtype.BoundType. Returns ok=false for
+// anything that doesn't match, so callers can fall back safely.
+func marshalRange(rv reflect.Value, pgType string) (any, bool) {
+	t := rv.Type()
+	boundType := reflect.TypeOf(pgtype.BoundType(0))
+
+	lowerField, ok := t.FieldByName("Lower")
+	if !ok {
+		return nil, false
+	}
+	upperField, ok := t.FieldByName("Upper")
+	if !ok {
+		return nil, false
+	}
+	lowerTypeField, ok := t.FieldByName("LowerType")
+	if !ok || lowerTypeField.Type != boundType {
+		return nil, false
+	}
+	upperTypeField, ok := t.FieldByName("UpperType")
+	if !ok || upperTypeField.Type != boundType {
+		return nil, false
+	}
+	validField, ok := t.FieldByName("Valid")
+	if !ok || validField.Type.Kind() != reflect.Bool {
+		return nil, false
+	}
+
+	elemType := rangeElementTypes[pgType]
+	lower := marshalValue(rv.FieldByIndex(lowerField.Index).Interface(), elemType)
+	upper := marshalValue(rv.FieldByIndex(upperField.Index).Interface(), elemType)
+	lowerType := pgtype.BoundType(rv.FieldByIndex(lowerTypeField.Index).Uint())
+	upperType := pgtype.BoundType(rv.FieldByIndex(upperTypeField.Index).Uint())
+
+	return map[string]any{
+		"lower":      lower,
+		"upper":      upper,
+		"lower_type": boundTypeLabel(lowerType),
+		"upper_type": boundTypeLabel(upperType),
+		"valid":      rv.FieldByIndex(validField.Index).Bool(),
+	}, true
+}
+
+func boundTypeLabel(bt pgtype.BoundType) string {
+	switch bt {
+	case pgtype.Inclusive:
+		return "inclusive"
+	case pgtype.Exclusive:
+		return "exclusive"
+	case pgtype.Unbounded:
+		return "unbounded"
+	case pgtype.Empty:
+		return "empty"
+	default:
+		return string(bt)
+	}
 }
