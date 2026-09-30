@@ -62,13 +62,13 @@ func printUsage() {
 
 Usage:
   dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
-  dbcli explain "<SQL>" [--profile NAME] [--analyze]
-  dbcli schemas [--profile NAME]
-  dbcli schema [--profile NAME] [--schema public]
-  dbcli describe <table> [--profile NAME] [--schema public]
-  dbcli sample <table> [--profile NAME] [--limit 20]
+  dbcli explain "<SQL>" [--profile NAME] [--analyze] [--timeout Ns] [--format json|table]
+  dbcli schemas [--profile NAME] [--timeout Ns]
+  dbcli schema [--profile NAME] [--schema public] [--timeout Ns]
+  dbcli describe <table> [--profile NAME] [--schema public] [--timeout Ns]
+  dbcli sample <table> [--profile NAME] [--schema public] [--limit 20] [--timeout Ns] [--format json|table]
   dbcli profiles list
-  dbcli profiles add <name> <dsn>
+  dbcli profiles add <name> [dsn]   (reads dsn from stdin if omitted)
   dbcli profiles remove <name>
   dbcli version
 
