@@ -81,9 +81,9 @@ type QueryOptions struct {
 type Conn interface {
 	Query(ctx context.Context, sql string, opts QueryOptions) (*QueryResult, error)
 	Explain(ctx context.Context, sql string, opts QueryOptions) (*QueryResult, error)
-	ListSchemas(ctx context.Context) ([]SchemaInfo, error)
-	ListSchema(ctx context.Context, schema string) ([]TableInfo, error)
-	DescribeTable(ctx context.Context, schema, table string) (*TableDescription, error)
+	ListSchemas(ctx context.Context, opts QueryOptions) ([]SchemaInfo, error)
+	ListSchema(ctx context.Context, schema string, opts QueryOptions) ([]TableInfo, error)
+	DescribeTable(ctx context.Context, schema, table string, opts QueryOptions) (*TableDescription, error)
 	Sample(ctx context.Context, schema, table string, opts QueryOptions) (*QueryResult, error)
 	Close(ctx context.Context) error
 }

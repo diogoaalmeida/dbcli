@@ -22,7 +22,8 @@ SELECT n.nspname AS schema,
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'v', 'm') AND n.nspname = $1
-ORDER BY c.relname`
+ORDER BY c.relname
+LIMIT $2`
 
 const listSchemasSQL = `
 SELECT n.nspname AS name,
@@ -33,14 +34,24 @@ WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
   AND n.nspname NOT LIKE 'pg\_toast%' ESCAPE '\'
   AND n.nspname NOT LIKE 'pg\_temp\_%' ESCAPE '\'
 GROUP BY n.nspname
-ORDER BY n.nspname`
+ORDER BY n.nspname
+LIMIT $1`
 
 // ListSchemas lists every non-system schema in the database, with a count
 // of the tables/views/materialized views each one holds. It's the entry
 // point for exploring an unfamiliar database: run this first, then
 // ListSchema(name) to see what's inside one of the schemas it reports.
-func (c *conn) ListSchemas(ctx context.Context) ([]driver.SchemaInfo, error) {
-	rows, err := c.pgxConn.Query(ctx, listSchemasSQL)
+// Like every other query dbcli runs, this goes through a read-only,
+// timeout-bounded transaction and a hard row cap — a schema-per-tenant
+// database can have as many schemas as a data table has rows.
+func (c *conn) ListSchemas(ctx context.Context, opts driver.QueryOptions) ([]driver.SchemaInfo, error) {
+	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, listSchemasSQL, clampLimit(opts.Limit))
 	if err != nil {
 		return nil, fmt.Errorf("list schemas: %w", err)
 	}
@@ -60,12 +71,18 @@ func (c *conn) ListSchemas(ctx context.Context) ([]driver.SchemaInfo, error) {
 	return schemas, nil
 }
 
-func (c *conn) ListSchema(ctx context.Context, schema string) ([]driver.TableInfo, error) {
+func (c *conn) ListSchema(ctx context.Context, schema string, opts driver.QueryOptions) ([]driver.TableInfo, error) {
 	if schema == "" {
 		schema = "public"
 	}
 
-	rows, err := c.pgxConn.Query(ctx, listSchemaSQL, schema)
+	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, listSchemaSQL, schema, clampLimit(opts.Limit))
 	if err != nil {
 		return nil, fmt.Errorf("list schema: %w", err)
 	}
@@ -89,7 +106,8 @@ const columnsSQL = `
 SELECT column_name, data_type, (is_nullable = 'YES') AS nullable, column_default
 FROM information_schema.columns
 WHERE table_schema = $1 AND table_name = $2
-ORDER BY ordinal_position`
+ORDER BY ordinal_position
+LIMIT $3`
 
 const indexesSQL = `
 SELECT i.relname AS index_name,
@@ -102,7 +120,8 @@ JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
 JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
 WHERE n.nspname = $1 AND t.relname = $2
 GROUP BY i.relname, ix.indisunique
-ORDER BY i.relname`
+ORDER BY i.relname
+LIMIT $3`
 
 const foreignKeysSQL = `
 SELECT kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
@@ -112,7 +131,8 @@ JOIN information_schema.key_column_usage kcu
 JOIN information_schema.constraint_column_usage ccu
   ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 AND tc.table_name = $2
-ORDER BY kcu.column_name`
+ORDER BY kcu.column_name
+LIMIT $3`
 
 const tableExistsSQL = `
 SELECT EXISTS (
@@ -120,22 +140,33 @@ SELECT EXISTS (
   WHERE table_schema = $1 AND table_name = $2
 )`
 
-func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver.TableDescription, error) {
+// DescribeTable runs all four of its queries (existence check, columns,
+// indexes, foreign keys) inside one read-only, timeout-bounded transaction,
+// so the whole operation shares a single deadline instead of each query
+// getting its own.
+func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts driver.QueryOptions) (*driver.TableDescription, error) {
 	if schema == "" {
 		schema = "public"
 	}
 
+	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
 	var exists bool
-	if err := c.pgxConn.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check table exists: %w", err)
 	}
 	if !exists {
 		return nil, fmt.Errorf("table %s.%s not found", schema, table)
 	}
 
+	limit := clampLimit(opts.Limit)
 	desc := &driver.TableDescription{Schema: schema, Table: table}
 
-	rows, err := c.pgxConn.Query(ctx, columnsSQL, schema, table)
+	rows, err := tx.Query(ctx, columnsSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe columns: %w", err)
 	}
@@ -153,7 +184,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 		return nil, fmt.Errorf("describe columns iteration: %w", rowsErr)
 	}
 
-	idxRows, err := c.pgxConn.Query(ctx, indexesSQL, schema, table)
+	idxRows, err := tx.Query(ctx, indexesSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe indexes: %w", err)
 	}
@@ -171,7 +202,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string) (*driver
 		return nil, fmt.Errorf("describe indexes iteration: %w", idxErr)
 	}
 
-	fkRows, err := c.pgxConn.Query(ctx, foreignKeysSQL, schema, table)
+	fkRows, err := tx.Query(ctx, foreignKeysSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe foreign keys: %w", err)
 	}
@@ -201,8 +232,14 @@ func (c *conn) Sample(ctx context.Context, schema, table string, opts driver.Que
 		schema = "public"
 	}
 
+	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
 	var exists bool
-	if err := c.pgxConn.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
 		return nil, fmt.Errorf("check table exists: %w", err)
 	}
 	if !exists {
@@ -212,5 +249,5 @@ func (c *conn) Sample(ctx context.Context, schema, table string, opts driver.Que
 	ident := pgx.Identifier{schema, table}.Sanitize()
 	limit := clampLimit(opts.Limit)
 	sql := fmt.Sprintf("SELECT * FROM %s LIMIT %d", ident, limit)
-	return c.run(ctx, sql, opts, limit, sql)
+	return c.runInTx(ctx, tx, sql, limit, sql)
 }

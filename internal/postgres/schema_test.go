@@ -11,7 +11,7 @@ func TestListSchemas_IncludesPublicAndExcludesSystemSchemas(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
 
-	schemas, err := c.ListSchemas(ctx)
+	schemas, err := c.ListSchemas(ctx, driver.QueryOptions{})
 	if err != nil {
 		t.Fatalf("ListSchemas: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestListSchema_ListsTableInGivenSchema(t *testing.T) {
 		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_list_test")
 	})
 
-	tables, err := c.ListSchema(ctx, "public")
+	tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{})
 	if err != nil {
 		t.Fatalf("ListSchema: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestDescribeTable_ReturnsColumnsIndexesAndForeignKeys(t *testing.T) {
 		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_child_test, dbcli_describe_parent_test")
 	})
 
-	desc, err := c.DescribeTable(ctx, "public", "dbcli_describe_child_test")
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_describe_child_test", driver.QueryOptions{})
 	if err != nil {
 		t.Fatalf("DescribeTable: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestDescribeTable_UnknownTableErrors(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
 
-	if _, err := c.DescribeTable(ctx, "public", "dbcli_does_not_exist_test"); err == nil {
+	if _, err := c.DescribeTable(ctx, "public", "dbcli_does_not_exist_test", driver.QueryOptions{}); err == nil {
 		t.Fatalf("expected an error for a nonexistent table")
 	}
 }

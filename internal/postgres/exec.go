@@ -63,8 +63,11 @@ func (c *conn) Explain(ctx context.Context, sql string, opts driver.QueryOptions
 	return c.run(ctx, explainSQL, opts, 0, validated)
 }
 
-func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, limitForTruncation int, recordQuery string) (*driver.QueryResult, error) {
-	timeoutSeconds := opts.TimeoutSeconds
+// beginReadOnlyTimeoutTx starts a read-only transaction with a per-session
+// statement_timeout. Every query dbcli runs, including schema introspection,
+// goes through this: it's both the second layer of the read-only defense
+// (behind the SQL classifier) and the server-side timeout backstop.
+func (c *conn) beginReadOnlyTimeoutTx(ctx context.Context, timeoutSeconds int) (pgx.Tx, error) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = defaultTimeoutSeconds
 	}
@@ -73,12 +76,29 @@ func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, li
 	if err != nil {
 		return nil, fmt.Errorf("begin read-only transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeoutSeconds*1000)); err != nil {
+		tx.Rollback(ctx)
 		return nil, fmt.Errorf("set statement_timeout: %w", err)
 	}
+	return tx, nil
+}
 
+func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, limitForTruncation int, recordQuery string) (*driver.QueryResult, error) {
+	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	return c.runInTx(ctx, tx, sql, limitForTruncation, recordQuery)
+}
+
+// runInTx runs sql on an already-open transaction. Callers that need to run
+// a check (like Sample's table-existence lookup) before the real query, in
+// the same transaction and under the same timeout, use this directly instead
+// of run().
+func (c *conn) runInTx(ctx context.Context, tx pgx.Tx, sql string, limitForTruncation int, recordQuery string) (*driver.QueryResult, error) {
 	start := time.Now()
 	rows, err := tx.Query(ctx, sql)
 	if err != nil {
