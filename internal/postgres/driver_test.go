@@ -32,6 +32,14 @@ func TestConnect_ErrorNeverLeaksThePassword(t *testing.T) {
 		}
 	}
 
+	t.Run("malformed DSN, fails before any network call", func(t *testing.T) {
+		// An invalid sslmode fails pgx's own DSN parsing/config step,
+		// before it ever dials anything.
+		dsn := "postgres://user:" + password + "@localhost:5432/db?sslmode=not-a-real-mode"
+		_, err := (pgDriver{}).Connect(context.Background(), dsn)
+		assertNoLeak(t, err)
+	})
+
 	t.Run("connection refused", func(t *testing.T) {
 		// A closed local TCP port: open and immediately close a listener to
 		// get a port nothing is listening on.
