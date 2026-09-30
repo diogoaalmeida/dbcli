@@ -16,7 +16,8 @@ func Schemas(args []string) int {
 		return 2
 	}
 
-	ctx := context.Background()
+	ctx, cancel := withOperationTimeout(context.Background(), *timeout)
+	defer cancel()
 	conn, err := connect(ctx, *profile, *driverFlag)
 	if err != nil {
 		return fail(err, "connection_error")

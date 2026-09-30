@@ -26,7 +26,8 @@ func Query(args []string) int {
 	}
 	sql := positional[0]
 
-	ctx := context.Background()
+	ctx, cancel := withOperationTimeout(context.Background(), *timeout)
+	defer cancel()
 	conn, err := connect(ctx, *profile, *driverFlag)
 	if err != nil {
 		return fail(err, "connection_error")

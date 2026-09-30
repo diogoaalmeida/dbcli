@@ -16,7 +16,31 @@ import (
 	_ "github.com/diogoaalmeida/dbcli/internal/postgres" // registers the postgres:// driver
 )
 
-const connectTimeout = 10 * time.Second
+const (
+	connectTimeout = 10 * time.Second
+
+	// defaultOperationTimeoutSeconds mirrors postgres.defaultTimeoutSeconds
+	// (the server-side statement_timeout default) so a command with no
+	// --timeout flag still gets a sane client-side ceiling.
+	defaultOperationTimeoutSeconds = 5
+
+	// clientTimeoutBufferSeconds is headroom added on top of the requested
+	// (or default) operation timeout, to cover connect() and network
+	// latency the server-side statement_timeout alone can't bound.
+	clientTimeoutBufferSeconds = 15
+)
+
+// withOperationTimeout bounds an entire command — connect plus the actual
+// operation — on the client side. statement_timeout alone only bounds
+// server-side execution time; if the connection stalls before Postgres
+// starts working (a network partition, an unresponsive server), nothing
+// server-side ever gives up, so every command needs its own deadline too.
+func withOperationTimeout(parent context.Context, timeoutSeconds int) (context.Context, context.CancelFunc) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = defaultOperationTimeoutSeconds
+	}
+	return context.WithTimeout(parent, time.Duration(timeoutSeconds+clientTimeoutBufferSeconds)*time.Second)
+}
 
 // connect resolves --profile (or DATABASE_URL) to a DSN, infers the driver
 // from the DSN's URI scheme unless driverOverride is set, and connects.
