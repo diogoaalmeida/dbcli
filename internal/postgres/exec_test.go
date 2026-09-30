@@ -83,6 +83,34 @@ func TestQuery_StatementTimeoutCancelsSlowQuery(t *testing.T) {
 	}
 }
 
+// TestQuery_TableShorthandSurvivesLimitWrapping locks in that `TABLE x` —
+// the one accepted keyword that isn't itself a SELECT — actually parses once
+// WrapWithLimit nests it as `SELECT * FROM (TABLE x) AS dbcli_subquery
+// LIMIT n`. Nothing in dbsafety_test.go executes this against a real
+// database; it only checks that the classifier accepts the string.
+func TestQuery_TableShorthandSurvivesLimitWrapping(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_table_shorthand_test (id serial primary key, name text)"); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_table_shorthand_test")
+	})
+	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_table_shorthand_test (name) values ('a'), ('b')"); err != nil {
+		t.Fatalf("test fixture insert: %v", err)
+	}
+
+	result, err := c.Query(ctx, "table dbcli_table_shorthand_test", driver.QueryOptions{})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if result.RowCount != 2 {
+		t.Fatalf("got %d rows, want 2", result.RowCount)
+	}
+}
+
 func TestExplain_PlainDoesNotRequireAnalyze(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
