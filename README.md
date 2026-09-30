@@ -140,6 +140,90 @@ needed on the consuming side. `timestamp`/`timestamptz` are RFC3339;
 `date` is a plain `"YYYY-MM-DD"` string with no time component. `bytea` is
 base64.
 
+## Example
+
+A typical flow for an agent that has never seen this database before: find
+out what schemas exist, list the tables in one, inspect a table's shape,
+then answer a real question, against a small `shop` schema (`customers`,
+`orders`, `order_items`).
+
+```bash
+$ dbcli schemas --profile prod
+{
+  "ok": true,
+  "data": [
+    { "name": "public", "table_count": 0 },
+    { "name": "shop", "table_count": 3 }
+  ]
+}
+```
+
+```bash
+$ dbcli schema --profile prod --schema shop
+{
+  "ok": true,
+  "data": [
+    { "schema": "shop", "name": "customers", "kind": "table", "estimated_rows": 2 },
+    { "schema": "shop", "name": "order_items", "kind": "table", "estimated_rows": 3 },
+    { "schema": "shop", "name": "orders", "kind": "table", "estimated_rows": 4 }
+  ]
+}
+```
+
+```bash
+$ dbcli describe orders --profile prod --schema shop
+{
+  "ok": true,
+  "data": {
+    "schema": "shop",
+    "table": "orders",
+    "columns": [
+      { "name": "id", "type": "integer", "nullable": false, "default": "nextval('shop.orders_id_seq'::regclass)" },
+      { "name": "customer_id", "type": "integer", "nullable": true },
+      { "name": "status", "type": "text", "nullable": false },
+      { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
+    ],
+    "indexes": [
+      { "name": "orders_pkey", "columns": ["id"], "unique": true }
+    ],
+    "foreign_keys": [
+      { "column": "customer_id", "ref_table": "customers", "ref_column": "id" }
+    ]
+  }
+}
+```
+
+```bash
+$ dbcli query "select status, count(*) from shop.orders group by status" --profile prod
+{
+  "ok": true,
+  "columns": [
+    { "name": "status", "type": "text" },
+    { "name": "count", "type": "int8" }
+  ],
+  "rows": [
+    { "status": "cancelled", "count": "1" },
+    { "status": "pending", "count": "1" },
+    { "status": "shipped", "count": "2" }
+  ],
+  "row_count": 3,
+  "truncated": false,
+  "duration_ms": 1,
+  "query": "select status, count(*) from shop.orders group by status"
+}
+```
+
+And the guarantee this whole tool is built around, in action:
+
+```bash
+$ dbcli query "delete from shop.orders" --profile prod
+{
+  "ok": false,
+  "error": "query rejected: only SELECT/WITH/EXPLAIN/TABLE statements are allowed",
+  "code": "query_error"
+}
+```
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
