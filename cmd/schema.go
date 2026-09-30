@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"flag"
+
+	"github.com/diogoaalmeida/dbcli/internal/driver"
 )
 
 func Schema(args []string) int {
@@ -10,6 +12,7 @@ func Schema(args []string) int {
 	profile := fs.String("profile", "", "named connection profile")
 	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
 	schema := fs.String("schema", "public", "schema to list")
+	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -21,7 +24,7 @@ func Schema(args []string) int {
 	}
 	defer conn.Close(ctx)
 
-	tables, err := conn.ListSchema(ctx, *schema)
+	tables, err := conn.ListSchema(ctx, *schema, driver.QueryOptions{TimeoutSeconds: *timeout})
 	if err != nil {
 		return fail(err, "schema_error")
 	}

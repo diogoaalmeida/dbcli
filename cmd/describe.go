@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/diogoaalmeida/dbcli/internal/driver"
 )
 
 func Describe(args []string) int {
@@ -12,6 +14,7 @@ func Describe(args []string) int {
 	profile := fs.String("profile", "", "named connection profile")
 	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
 	schema := fs.String("schema", "public", "schema the table belongs to")
+	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
 	flagArgs, positional := splitFlagsAndPositional(args, nil)
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -29,7 +32,7 @@ func Describe(args []string) int {
 	}
 	defer conn.Close(ctx)
 
-	desc, err := conn.DescribeTable(ctx, *schema, table)
+	desc, err := conn.DescribeTable(ctx, *schema, table, driver.QueryOptions{TimeoutSeconds: *timeout})
 	if err != nil {
 		return fail(err, "describe_error")
 	}
