@@ -7,11 +7,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/joho/godotenv"
 )
+
+// validProfileName matches valid environment-variable-name characters.
+// Anything else (newlines, "=", hyphens, spaces, ...) either breaks
+// profiles.env's key=value parsing outright or, worse, lets a crafted name
+// inject an extra line into the file — a real risk since dbcli is meant to
+// be driven by an agent that could itself be prompt-injected into running
+// `dbcli profiles add <attacker-controlled name>`.
+var validProfileName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
+func validateProfileName(name string) error {
+	if !validProfileName.MatchString(name) {
+		return fmt.Errorf("invalid profile name %q: only letters, digits, and underscores are allowed", name)
+	}
+	return nil
+}
 
 // ConfigDir returns the directory dbcli's config file lives in, honoring
 // XDG_CONFIG_HOME when set.
@@ -102,6 +118,13 @@ func List() ([]string, error) {
 // Add writes or overwrites a profile's DSN in the profiles file, creating
 // the config directory and file if needed.
 func Add(name, dsn string) error {
+	if err := validateProfileName(name); err != nil {
+		return err
+	}
+	if strings.ContainsAny(dsn, "\r\n") {
+		return fmt.Errorf("dsn cannot contain newlines")
+	}
+
 	dir, err := ConfigDir()
 	if err != nil {
 		return err
@@ -128,6 +151,10 @@ func Add(name, dsn string) error {
 
 // Remove deletes a profile from the profiles file.
 func Remove(name string) error {
+	if err := validateProfileName(name); err != nil {
+		return err
+	}
+
 	path, err := ProfilesPath()
 	if err != nil {
 		return err
