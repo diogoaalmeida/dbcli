@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/diogoaalmeida/dbcli/internal/driver"
@@ -37,42 +36,70 @@ func TestQuery_MacaddrRendersAsCanonicalString(t *testing.T) {
 	}
 }
 
-// TestQuery_RangeTypeRendersAsStructuredJSONNotGoSyntaxDump covers
-// pgtype.Range[T] (int4range, tsrange, numrange, ...), which has no
-// database/sql/driver.Valuer implementation. Before this test, the fallback
-// used fmt.Sprintf("%v", v), producing something like "{1 10 i e true}" —
-// not valid structured JSON, and unreadable. It should now come through as
-// a real JSON object using the range's own exported field names.
-func TestQuery_RangeTypeRendersAsStructuredJSONNotGoSyntaxDump(t *testing.T) {
+// TestQuery_RangeTypesRenderBoundsCorrectly covers pgtype.Range[T] (int4range,
+// numrange, int8range, daterange, ...), which has no database/sql/driver.Valuer
+// implementation.
+//
+// This subsumes an earlier, weaker version of this test that only checked a
+// "Lower" key existed on an int4range result. An earlier fix (returning the
+// raw struct so json.Marshal renders it instead of fmt.Sprintf-ing a Go %v
+// dump) passed that check while reintroducing two of the exact bugs
+// marshalValue exists to prevent, because raw struct fields bypass its
+// numeric-as-string and date-vs-timestamp rules entirely:
+//   - numrange/int8range bounds serialized as bare JSON numbers, losing
+//     precision for large int8 bounds and violating the numeric-as-string
+//     convention every other numeric type in this file follows.
+//   - daterange bounds serialized as fake-midnight timestamps
+//     ("2026-01-01T00:00:00Z") instead of date-only strings, since bounds
+//     never reached the pgType == "date" branch that scalar date columns do.
+//
+// This version checks actual bound values and types, not just field presence,
+// so it would have caught both regressions.
+func TestQuery_RangeTypesRenderBoundsCorrectly(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
 
-	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_range_test (r int4range)"); err != nil {
-		t.Fatalf("test fixture setup: %v", err)
-	}
-	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_range_test")
-	})
-	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_range_test values (int4range(1, 10))"); err != nil {
-		t.Fatalf("test fixture insert: %v", err)
-	}
-
-	result, err := c.Query(ctx, "select r from dbcli_range_test", driver.QueryOptions{})
-	if err != nil {
-		t.Fatalf("query: %v", err)
+	cases := []struct {
+		name      string
+		sqlValue  string
+		wantLower string
+		wantUpper string
+	}{
+		{"int4range", "int4range(1, 10)", "1", "10"},
+		{"numrange bounds preserve precision as strings", "numrange(1.5, 9.75)", "1.5", "9.75"},
+		{"int8range bounds beyond float64 precision stay exact strings", "int8range(9223372036854775800, 9223372036854775807)", "9223372036854775800", "9223372036854775807"},
+		{"daterange bounds are date-only, not fake-midnight timestamps", "daterange('2026-01-01', '2026-02-01')", "2026-01-01", "2026-02-01"},
 	}
 
-	// The whole point: this value must survive a real JSON round trip as an
-	// object, not a bare string containing Go's %v syntax.
-	encoded, err := json.Marshal(result.Rows[0]["r"])
-	if err != nil {
-		t.Fatalf("marshal range value: %v", err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatalf("range value is not a JSON object (got %s): %v", encoded, err)
-	}
-	if _, ok := decoded["Lower"]; !ok {
-		t.Fatalf("expected a \"Lower\" field in the range's JSON object, got %s", encoded)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := c.Query(ctx, "select "+tc.sqlValue+" as r", driver.QueryOptions{})
+			if err != nil {
+				t.Fatalf("query: %v", err)
+			}
+
+			r, ok := result.Rows[0]["r"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected the range to render as a JSON object, got %#v", result.Rows[0]["r"])
+			}
+
+			lower, ok := r["lower"].(string)
+			if !ok || lower != tc.wantLower {
+				t.Fatalf("lower: got %#v, want %q as a string", r["lower"], tc.wantLower)
+			}
+			upper, ok := r["upper"].(string)
+			if !ok || upper != tc.wantUpper {
+				t.Fatalf("upper: got %#v, want %q as a string", r["upper"], tc.wantUpper)
+			}
+			if r["lower_type"] != "inclusive" {
+				t.Fatalf("lower_type: got %#v, want \"inclusive\"", r["lower_type"])
+			}
+			if r["upper_type"] != "exclusive" {
+				t.Fatalf("upper_type: got %#v, want \"exclusive\"", r["upper_type"])
+			}
+			if r["valid"] != true {
+				t.Fatalf("valid: got %#v, want true", r["valid"])
+			}
+		})
 	}
 }
