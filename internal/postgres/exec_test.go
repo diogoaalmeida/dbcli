@@ -95,3 +95,52 @@ func TestExplain_PlainDoesNotRequireAnalyze(t *testing.T) {
 		t.Fatalf("expected at least one plan row")
 	}
 }
+
+// TestClassifierGap_WriteHidingCTEIsBlockedByReadOnlyTx exercises the exact
+// scenario the "classifier + read-only tx" defense-in-depth story hinges on:
+// ValidateQuery accepts anything starting with WITH, so a data-modifying CTE
+// (`with x as (delete ... returning *) select * from x`) passes the
+// classifier. The read-only transaction is what actually has to stop it.
+//
+// This has to go through Explain with Analyze, not Query: Query wraps the
+// statement in `SELECT * FROM (...) AS dbcli_subquery LIMIT n`, and Postgres
+// separately refuses a data-modifying CTE that isn't at the top level of the
+// statement — that's a syntax restriction, not our protection, and it would
+// make this test pass for the wrong reason. Explain doesn't wrap the query,
+// so the CTE stays top-level, and plain EXPLAIN never executes anything, so
+// only EXPLAIN ANALYZE actually forces execution and gives the read-only
+// transaction something to block.
+func TestClassifierGap_WriteHidingCTEIsBlockedByReadOnlyTx(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_classifier_gap_test (id serial primary key)"); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_classifier_gap_test")
+	})
+	for i := 0; i < 2; i++ {
+		if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_classifier_gap_test default values"); err != nil {
+			t.Fatalf("test fixture insert: %v", err)
+		}
+	}
+
+	writeHidingCTE := "with x as (delete from dbcli_classifier_gap_test returning *) select * from x"
+
+	if _, err := ValidateQuery(writeHidingCTE); err != nil {
+		t.Fatalf("expected the classifier to accept a WITH statement (that's the gap this test covers), got: %v", err)
+	}
+
+	if _, err := c.Explain(ctx, writeHidingCTE, driver.QueryOptions{Analyze: true}); err == nil {
+		t.Fatalf("expected the read-only transaction to reject the data-modifying CTE")
+	}
+
+	var count int
+	if err := c.pgxConn.QueryRow(ctx, "select count(*) from dbcli_classifier_gap_test").Scan(&count); err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected both rows to survive untouched, got %d remaining", count)
+	}
+}
