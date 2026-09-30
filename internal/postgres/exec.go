@@ -5,6 +5,7 @@ import (
 	sqldriver "database/sql/driver"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"reflect"
 	"strconv"
 	"strings"
@@ -175,6 +176,12 @@ func marshalValue(v any, pgType string) any {
 	switch val := v.(type) {
 	case []byte:
 		return base64.StdEncoding.EncodeToString(val)
+	case net.HardwareAddr:
+		// pgx decodes macaddr into net.HardwareAddr, a named []byte type —
+		// the []byte case above only matches the exact type, not this one,
+		// so without this it falls through to the generic slice case and
+		// renders as an array of raw byte numbers instead of "aa:bb:...".
+		return val.String()
 	case time.Time:
 		if pgType == "date" {
 			return val.Format("2006-01-02")
@@ -216,7 +223,13 @@ func marshalValue(v any, pgType string) any {
 				return marshalValue(dv, pgType)
 			}
 		}
-		return fmt.Sprintf("%v", v)
+		// No Valuer (e.g. range types: pgtype.Range[T] has no Value()
+		// method): return the struct as-is rather than fmt.Sprintf-ing it.
+		// json.Marshal renders its exported fields as a real JSON object
+		// (e.g. {"Lower":"1","Upper":"10",...}) instead of Go's %v syntax
+		// dump ("{1 10 i e true}"), which isn't valid JSON-consumer-friendly
+		// output at all.
+		return v
 	default:
 		return v
 	}
