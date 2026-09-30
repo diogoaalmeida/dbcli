@@ -93,7 +93,28 @@ See `.env.example` for both forms.
 - `sample`: print up to N rows from a table
 - `profiles`: manage named connection profiles (`list` / `add` / `remove`)
 
-Run `dbcli <command> --help` or see the [package documentation](https://pkg.go.dev/github.com/diogoaalmeida/dbcli) for the full flag reference.
+```
+$ dbcli --help
+dbcli: read-only SQL for AI agents
+
+Usage:
+  dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
+  dbcli explain "<SQL>" [--profile NAME] [--analyze] [--timeout Ns] [--format json|table]
+  dbcli schemas [--profile NAME] [--timeout Ns]
+  dbcli schema [--profile NAME] [--schema public] [--timeout Ns]
+  dbcli describe <table> [--profile NAME] [--schema public] [--timeout Ns]
+  dbcli sample <table> [--profile NAME] [--schema public] [--limit 20] [--timeout Ns] [--format json|table]
+  dbcli profiles list
+  dbcli profiles add <name> [dsn]   (reads dsn from stdin if omitted)
+  dbcli profiles remove <name>
+  dbcli version
+
+Connection: --profile NAME resolves against ~/.config/dbcli/profiles.env,
+or set DATABASE_URL directly. See README.md for setup, including creating
+a least-privilege read-only database role.
+```
+
+Run `dbcli <command> --help` for that command's individual flags (e.g. `--driver`, present on every command, to override the scheme inferred from the connection string).
 
 Every result, success or failure, is JSON on stdout:
 
