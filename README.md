@@ -138,7 +138,9 @@ Numbers (`int4`, `int8`, `numeric`, etc.) are serialized as JSON strings to
 avoid precision loss for large integers and decimals, so parse them as
 needed on the consuming side. `timestamp`/`timestamptz` are RFC3339;
 `date` is a plain `"YYYY-MM-DD"` string with no time component. `bytea` is
-base64.
+base64. Range types (`numrange`, `int8range`, `daterange`, etc.) become
+`{"lower": ..., "upper": ..., "lower_type": "inclusive"|"exclusive", "upper_type": ..., "valid": true}`,
+with bounds following the same rules as their scalar type.
 
 ## Example
 
