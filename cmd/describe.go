@@ -15,7 +15,9 @@ func Describe(args []string) int {
 	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
 	schema := fs.String("schema", "public", "schema the table belongs to")
 	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
-	flagArgs, positional := splitFlagsAndPositional(args, nil)
+	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
+		"profile": false, "driver": false, "schema": false, "timeout": false,
+	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}

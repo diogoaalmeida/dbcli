@@ -17,7 +17,9 @@ func Sample(args []string) int {
 	limit := fs.Int("limit", 20, "rows to sample")
 	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
 	format := fs.String("format", "json", "output format: json|table")
-	flagArgs, positional := splitFlagsAndPositional(args, nil)
+	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
+		"profile": false, "driver": false, "schema": false, "limit": false, "timeout": false, "format": false,
+	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}

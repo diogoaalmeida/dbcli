@@ -16,7 +16,9 @@ func Explain(args []string) int {
 	analyze := fs.Bool("analyze", false, "run EXPLAIN ANALYZE (executes the query; plain EXPLAIN does not)")
 	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
 	format := fs.String("format", "json", "output format: json|table")
-	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{"analyze": true})
+	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
+		"profile": false, "driver": false, "analyze": true, "timeout": false, "format": false,
+	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}

@@ -8,8 +8,14 @@ import "strings"
 // parsing at the first non-flag argument, which would otherwise silently
 // ignore flags typed after a positional argument (e.g.
 // `dbcli sample vehicles --limit 1`, the natural way to type it).
-// boolFlags lists flag names (without dashes) that take no value.
-func splitFlagsAndPositional(args []string, boolFlags map[string]bool) (flags []string, positional []string) {
+//
+// knownFlags maps every valid flag name for the calling command (without
+// dashes) to whether it's boolean (true, takes no value) or not (false,
+// takes a value). A "-"-prefixed token that isn't in knownFlags is treated
+// as positional rather than an unrecognized flag — this lets a query or
+// table name that happens to start with "-" survive instead of being
+// misparsed.
+func splitFlagsAndPositional(args []string, knownFlags map[string]bool) (flags []string, positional []string) {
 	i := 0
 	for i < len(args) {
 		a := args[i]
@@ -19,10 +25,22 @@ func splitFlagsAndPositional(args []string, boolFlags map[string]bool) (flags []
 			continue
 		}
 
-		flags = append(flags, a)
 		name := strings.TrimLeft(a, "-")
-		if strings.Contains(name, "=") || boolFlags[name] {
-			// "--limit=5" is self-contained; known bool flags take no value.
+		hasValue := false
+		if eq := strings.Index(name, "="); eq != -1 {
+			name = name[:eq]
+			hasValue = true
+		}
+
+		isBool, known := knownFlags[name]
+		if !known {
+			positional = append(positional, a)
+			i++
+			continue
+		}
+
+		flags = append(flags, a)
+		if hasValue || isBool {
 			i++
 			continue
 		}
