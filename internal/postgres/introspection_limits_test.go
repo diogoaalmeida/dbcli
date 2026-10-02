@@ -86,3 +86,28 @@ func TestDescribeTable_RespectsLimit(t *testing.T) {
 		t.Fatalf("got %d columns, want exactly 1 (limit should cap the columns list too)", len(desc.Columns))
 	}
 }
+
+func TestDescribeTable_ReverseForeignKeysRespectLimit(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	setup := `
+		create table if not exists dbcli_revfk_limit_parent_test (id serial primary key);
+		create table if not exists dbcli_revfk_limit_child_a_test (id serial primary key, parent_id integer references dbcli_revfk_limit_parent_test(id));
+		create table if not exists dbcli_revfk_limit_child_b_test (id serial primary key, parent_id integer references dbcli_revfk_limit_parent_test(id));
+	`
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_revfk_limit_child_a_test, dbcli_revfk_limit_child_b_test, dbcli_revfk_limit_parent_test")
+	})
+
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_revfk_limit_parent_test", driver.QueryOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(desc.ReferencedBy) != 1 {
+		t.Fatalf("got %d referenced_by entries, want exactly 1 (limit should cap reverse foreign keys too), got %+v", len(desc.ReferencedBy), desc.ReferencedBy)
+	}
+}
