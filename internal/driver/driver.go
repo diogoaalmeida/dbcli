@@ -28,8 +28,13 @@ type QueryResult struct {
 type TableInfo struct {
 	Schema        string `json:"schema"`
 	Name          string `json:"name"`
-	Kind          string `json:"kind"` // "table" or "view"
+	Kind          string `json:"kind"` // "table", "view", "materialized_view", "partitioned_table", or "foreign_table"
 	EstimatedRows int64  `json:"estimated_rows"`
+	// StatsKnown is false when the relation has never been vacuumed or
+	// analyzed (so EstimatedRows is a meaningless 0, not a confirmed empty
+	// table), and for relation kinds with no storage-level stats (views,
+	// foreign tables).
+	StatsKnown bool `json:"stats_known"`
 }
 
 // SchemaInfo is one row of a schemas listing.
@@ -44,6 +49,10 @@ type ColumnInfo struct {
 	Type     string  `json:"type"`
 	Nullable bool    `json:"nullable"`
 	Default  *string `json:"default,omitempty"`
+	Comment  *string `json:"comment,omitempty"`
+	// EnumValues is set when Type is an enum, listing its labels in
+	// definition order.
+	EnumValues []string `json:"enum_values,omitempty"`
 }
 
 // IndexInfo describes one index of a described table.
@@ -51,22 +60,55 @@ type IndexInfo struct {
 	Name    string   `json:"name"`
 	Columns []string `json:"columns"`
 	Unique  bool     `json:"unique"`
+	Primary bool     `json:"primary"`
 }
 
-// ForeignKeyInfo describes one foreign key of a described table.
+// ForeignKeyInfo describes one foreign key of a described table. Column and
+// RefColumn are one column pair of the constraint named by ConstraintName;
+// for a composite foreign key, one ForeignKeyInfo is emitted per column
+// pair, each carrying the full ordered Columns/RefColumns of that
+// constraint so callers can regroup without re-deriving pairing.
 type ForeignKeyInfo struct {
-	Column    string `json:"column"`
-	RefTable  string `json:"ref_table"`
-	RefColumn string `json:"ref_column"`
+	Column         string   `json:"column"`
+	RefTable       string   `json:"ref_table"`
+	RefColumn      string   `json:"ref_column"`
+	ConstraintName string   `json:"constraint_name"`
+	RefSchema      string   `json:"ref_schema"`
+	Columns        []string `json:"columns"`
+	RefColumns     []string `json:"ref_columns"`
+}
+
+// ReferencingForeignKey describes a foreign key in another table that
+// points at the described table (the reverse of ForeignKeyInfo).
+type ReferencingForeignKey struct {
+	ConstraintName string   `json:"constraint_name"`
+	Schema         string   `json:"schema"`
+	Table          string   `json:"table"`
+	Columns        []string `json:"columns"`
+	RefColumns     []string `json:"ref_columns"`
+}
+
+// ConstraintInfo describes a named constraint by its definition text, as
+// reported by pg_get_constraintdef (e.g. "UNIQUE (email)" or
+// "CHECK (price > 0)").
+type ConstraintInfo struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
 }
 
 // TableDescription is the full result of describing one table.
 type TableDescription struct {
-	Schema      string           `json:"schema"`
-	Table       string           `json:"table"`
-	Columns     []ColumnInfo     `json:"columns"`
-	Indexes     []IndexInfo      `json:"indexes"`
-	ForeignKeys []ForeignKeyInfo `json:"foreign_keys"`
+	Schema            string                  `json:"schema"`
+	Table             string                  `json:"table"`
+	Columns           []ColumnInfo            `json:"columns"`
+	Indexes           []IndexInfo             `json:"indexes"`
+	ForeignKeys       []ForeignKeyInfo        `json:"foreign_keys"`
+	PrimaryKey        []string                `json:"primary_key,omitempty"`
+	UniqueConstraints []ConstraintInfo        `json:"unique_constraints,omitempty"`
+	CheckConstraints  []ConstraintInfo        `json:"check_constraints,omitempty"`
+	Comment           *string                 `json:"comment,omitempty"`
+	ViewDefinition    *string                 `json:"view_definition,omitempty"`
+	ReferencedBy      []ReferencingForeignKey `json:"referenced_by,omitempty"`
 }
 
 // QueryOptions carries the per-invocation safety knobs a Conn must enforce.
