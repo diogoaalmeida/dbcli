@@ -89,7 +89,8 @@ See `.env.example` for both forms.
 - `explain`: print the query plan (`--analyze` for `EXPLAIN ANALYZE`)
 - `schemas`: list non-system schemas with their table counts
 - `schema`: list tables in one schema
-- `describe`: show a table's columns, indexes, and foreign keys
+- `describe`: show a table's columns, indexes, constraints, comments, and
+  relationships (including what references it)
 - `sample`: print up to N rows from a table
 - `profiles`: manage named connection profiles (`list` / `add` / `remove`)
 
@@ -165,12 +166,15 @@ $ dbcli schema --profile prod --schema shop
 {
   "ok": true,
   "data": [
-    { "schema": "shop", "name": "customers", "kind": "table", "estimated_rows": 2 },
-    { "schema": "shop", "name": "order_items", "kind": "table", "estimated_rows": 3 },
-    { "schema": "shop", "name": "orders", "kind": "table", "estimated_rows": 4 }
+    { "schema": "shop", "name": "customers", "kind": "table", "estimated_rows": 2, "stats_known": true },
+    { "schema": "shop", "name": "order_items", "kind": "table", "estimated_rows": 3, "stats_known": true },
+    { "schema": "shop", "name": "orders", "kind": "table", "estimated_rows": 4, "stats_known": true }
   ]
 }
 ```
+
+`stats_known` is `false` when a table has never been vacuumed or
+analyzed, so `estimated_rows` would otherwise look like a misleading 0.
 
 ```bash
 $ dbcli describe orders --profile prod --schema shop
@@ -182,21 +186,37 @@ $ dbcli describe orders --profile prod --schema shop
     "columns": [
       { "name": "id", "type": "integer", "nullable": false, "default": "nextval('shop.orders_id_seq'::regclass)" },
       { "name": "customer_id", "type": "integer", "nullable": true },
-      { "name": "status", "type": "text", "nullable": false },
+      { "name": "status", "type": "USER-DEFINED", "nullable": false, "enum_values": ["pending", "shipped", "cancelled"] },
       { "name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()" }
     ],
     "indexes": [
-      { "name": "orders_pkey", "columns": ["id"], "unique": true }
+      { "name": "orders_pkey", "columns": ["id"], "unique": true, "primary": true }
     ],
     "foreign_keys": [
-      { "column": "customer_id", "ref_table": "customers", "ref_column": "id" }
+      {
+        "column": "customer_id", "ref_table": "customers", "ref_column": "id",
+        "constraint_name": "orders_customer_id_fkey", "ref_schema": "shop",
+        "columns": ["customer_id"], "ref_columns": ["id"]
+      }
+    ],
+    "primary_key": ["id"],
+    "referenced_by": [
+      {
+        "constraint_name": "order_items_order_id_fkey", "schema": "shop", "table": "order_items",
+        "columns": ["order_id"], "ref_columns": ["id"]
+      }
     ]
   }
 }
 ```
 
+`describe` also reports `unique_constraints`/`check_constraints` (name +
+definition), table/column `comment`s, and `view_definition` for a view or
+materialized view, whichever of those apply to the table — all omitted
+when not applicable, same as `foreign_keys`/`enum_values` above.
+
 ```bash
-$ dbcli query "select status, count(*) from shop.orders group by status" --profile prod
+$ dbcli query "select status::text, count(*) from shop.orders group by status" --profile prod
 {
   "ok": true,
   "columns": [
@@ -211,9 +231,13 @@ $ dbcli query "select status, count(*) from shop.orders group by status" --profi
   "row_count": 3,
   "truncated": false,
   "duration_ms": 1,
-  "query": "select status, count(*) from shop.orders group by status"
+  "query": "select status::text, count(*) from shop.orders group by status"
 }
 ```
+
+(`status` is cast to `text` here because it's an enum column — see the
+`enum_values` in `describe orders` above; grouping by it directly works
+too, just reported with its real type name instead of `"text"`.)
 
 And the guarantee this whole tool is built around, in action:
 
