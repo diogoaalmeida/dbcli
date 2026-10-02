@@ -72,18 +72,16 @@ Files: `internal/driver/driver.go`, `internal/postgres/schema.go`,
   names, and comments, ranked (exact > prefix > substring; name > comment).
 - Returns `{kind, schema, table, column?, comment?, score}`; capped results.
 
-## Phase 2: Data profiling (replaces trial-and-error queries)
+## Phase 2: Sampling
 
-### 2.1 `dbcli profile <table> [--schema X] [--exact]`
-- Default mode uses `pg_stats` (null fraction, distinct estimate,
-  most-common values and frequencies, histogram bounds) so it scans nothing.
-- `--exact` runs a bounded `TABLESAMPLE`-based aggregate (min/max, distinct,
-  nulls, top-N values) inside the usual timeout/read-only transaction.
-- Reports when stats are missing/stale and recommends `--exact`.
-- Low-cardinality columns are flagged with their full value list
-  (`allowed_values`), covering the `WHERE status = 'active'` guess problem.
+Statistics-based profiling (`profile`, `stats`) is intentionally **out of
+scope**: it depends on `pg_stats` / `pg_stat_*`, whose visibility varies with
+role privileges and whose columns vary by Postgres version, and stale or
+missing stats look like "empty table". Agents can run their own aggregate
+queries through `dbcli query` and get a clear Postgres error if something
+fails.
 
-### 2.2 `sample` improvements
+### 2.1 `sample` improvements
 - `--random` (TABLESAMPLE), `--columns a,b,c` (validated against catalog,
   quoted), `--max-cell-bytes N` truncating long text/JSON/bytea with a
   `…[+N bytes]` marker.
@@ -116,7 +114,7 @@ Files: `internal/driver/driver.go`, `internal/postgres/schema.go`,
 
 ### 4.1 `dbcli mcp` (stdio MCP server)
 - Exposes `query`, `explain`, `overview`, `describe`, `relations`,
-  `join_path`, `search`, `profile`, `validate` as MCP tools with JSON
+  `join_path`, `search`, `validate` as MCP tools with JSON
   schemas, so agents call them natively with no shell-out. Reuses the same
   command logic through a shared internal service layer (refactor `cmd/*` so
   handlers return data and the CLI/MCP layers do the I/O).
@@ -132,10 +130,6 @@ Files: `internal/driver/driver.go`, `internal/postgres/schema.go`,
   snippet (tables, join paths, enum values, gotchas) for dropping into a
   repo's agent instructions.
 
-### 4.3 `dbcli stats`
-- Table sizes, live/dead tuples, last (auto)analyze/vacuum, unused indexes
-  (`pg_stat_user_tables`/`pg_stat_user_indexes`); `--check` flags stale stats.
-
 ## Phase 5 (later): More engines and conveniences
 - SQLite driver (local agent workflows), then MySQL, behind the existing
   `driver` interface (needs per-engine classifier + read-only mechanics).
@@ -149,10 +143,10 @@ Each step is an independently reviewable commit/PR.
 1. Phase 0 (0.1–0.8): correctness fixes + richer `describe`.
 2. 1.1 `overview` (+ `ddl` format).
 3. 1.2 `relations` / `join-path`, 1.3 `search`.
-4. 2.1 `profile`, 2.2 `sample` improvements.
+4. 2.1 `sample` improvements.
 5. 3.1–3.4 (`validate`, structured errors, truncation hints, compact output).
 6. 4.1 MCP server (includes the service-layer refactor).
-7. 4.2 cache + `agent-doc`, 4.3 `stats`.
+7. 4.2 cache + `agent-doc`.
 8. Phase 5 as demand dictates.
 
 ## Cross-cutting work for every step
@@ -170,8 +164,6 @@ Each step is an independently reviewable commit/PR.
 ## Open decisions
 1. **Default output shape:** new commands compact by default, existing
    commands unchanged (proposed). Confirm.
-2. **`profile` data source:** `pg_stats` by default with `--exact` opt-in
-   (proposed) vs. always sampling.
-3. **MCP:** official Go SDK vs. a minimal hand-rolled stdio JSON-RPC server
+2. **MCP:** official Go SDK vs. a minimal hand-rolled stdio JSON-RPC server
    (fewer dependencies, more maintenance).
-4. **Table caps:** default `--max-tables` for `overview` (proposed 200).
+3. **Table caps:** default `--max-tables` for `overview` (proposed 200).
