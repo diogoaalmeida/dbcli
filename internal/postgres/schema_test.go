@@ -436,6 +436,36 @@ func TestDescribeTable_ReturnsViewDefinitionForView(t *testing.T) {
 	}
 }
 
+// TestDescribeTable_DescribesMaterializedView is a regression test for a
+// code-review finding: tableExistsSQL queried information_schema.tables,
+// which (per the SQL standard it implements) excludes materialized
+// views, so describe on a matview failed with "table not found" even
+// though this PR added view_definition support for exactly this case.
+func TestDescribeTable_DescribesMaterializedView(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	setup := `
+		create table if not exists dbcli_matview_base_test (id serial primary key, name text);
+		create materialized view if not exists dbcli_matview_test as select id, name from dbcli_matview_base_test;
+	`
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop materialized view if exists dbcli_matview_test")
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_matview_base_test")
+	})
+
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_matview_test", driver.QueryOptions{})
+	if err != nil {
+		t.Fatalf("DescribeTable(materialized view): %v", err)
+	}
+	if desc.ViewDefinition == nil || !strings.Contains(*desc.ViewDefinition, "dbcli_matview_base_test") {
+		t.Fatalf("expected view_definition referencing dbcli_matview_base_test, got %+v", desc.ViewDefinition)
+	}
+}
+
 func TestListSchema_IncludesPartitionedTable(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()

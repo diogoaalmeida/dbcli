@@ -136,7 +136,8 @@ FROM pg_catalog.pg_type t
 JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
 JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 WHERE n.nspname = $1 AND t.typname = $2
-ORDER BY e.enumsortorder`
+ORDER BY e.enumsortorder
+LIMIT $3`
 
 const indexesSQL = `
 SELECT i.relname AS index_name,
@@ -160,6 +161,12 @@ LIMIT $3`
 // cross-joins a composite FK's columns. One row per constraint, with the
 // full ordered column lists; DescribeTable expands each into one
 // driver.ForeignKeyInfo per column pair.
+//
+// No LIMIT here: a table's own FK constraint count is bounded by its own
+// column count, not by data scale, so it's safe to fetch all of them.
+// describeForeignKeys applies the row cap itself, after expansion, since
+// a LIMIT at this level would cap constraints, not the expanded rows a
+// composite FK produces, letting a wide composite FK blow past the cap.
 const foreignKeysSQL = `
 SELECT con.conname AS constraint_name,
        rn.nspname AS ref_schema,
@@ -177,8 +184,7 @@ JOIN pg_catalog.pg_attribute att_child ON att_child.attrelid = con.conrelid AND 
 JOIN pg_catalog.pg_attribute att_parent ON att_parent.attrelid = con.confrelid AND att_parent.attnum = cfk.attnum
 WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
 GROUP BY con.conname, rn.nspname, rc.relname
-ORDER BY con.conname
-LIMIT $3`
+ORDER BY con.conname`
 
 // reverseForeignKeysSQL is foreignKeysSQL with the direction flipped: it
 // finds foreign keys owned by *other* tables that reference this one.
@@ -202,6 +208,10 @@ GROUP BY con.conname, n.nspname, c.relname
 ORDER BY con.conname
 LIMIT $3`
 
+// primaryKeySQL has no row-cap LIMIT: a primary key's column list is one
+// logical unit, not a capped collection, and Postgres itself caps a
+// single index/constraint at 32 columns, so there's no row-explosion
+// risk in leaving it unbounded here.
 const primaryKeySQL = `
 SELECT a.attname
 FROM pg_catalog.pg_constraint con
@@ -210,8 +220,7 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
 JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ck.attnum
 WHERE con.contype = 'p' AND n.nspname = $1 AND c.relname = $2
-ORDER BY ck.ord
-LIMIT $3`
+ORDER BY ck.ord`
 
 // uniqueAndCheckConstraintsSQL covers unique ('u') and check ('c')
 // constraints in one query; DescribeTable splits the rows by contype.
@@ -238,10 +247,16 @@ FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('v', 'm')`
 
+// tableExistsSQL queries pg_class/pg_namespace directly rather than
+// information_schema.tables, which (per the SQL standard it implements)
+// excludes materialized views and doesn't cover partitioned/foreign
+// tables either. relkind here matches exactly what schema/schemas list.
 const tableExistsSQL = `
 SELECT EXISTS (
-  SELECT 1 FROM information_schema.tables
-  WHERE table_schema = $1 AND table_name = $2
+  SELECT 1 FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2
+    AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
 )`
 
 // DescribeTable runs all of its queries (existence check, columns,
@@ -283,7 +298,7 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts dri
 	if desc.ReferencedBy, err = describeReverseForeignKeys(ctx, tx, schema, table, limit); err != nil {
 		return nil, err
 	}
-	if desc.PrimaryKey, err = describePrimaryKey(ctx, tx, schema, table, limit); err != nil {
+	if desc.PrimaryKey, err = describePrimaryKey(ctx, tx, schema, table); err != nil {
 		return nil, err
 	}
 	if desc.UniqueConstraints, desc.CheckConstraints, err = describeConstraints(ctx, tx, schema, table, limit); err != nil {
@@ -334,7 +349,7 @@ func describeColumns(ctx context.Context, tx pgx.Tx, schema, table string, limit
 			values, cached := cache[key]
 			if !cached {
 				var err error
-				values, err = describeEnumValues(ctx, tx, rc.udtSchema, rc.udtName)
+				values, err = describeEnumValues(ctx, tx, rc.udtSchema, rc.udtName, limit)
 				if err != nil {
 					return nil, err
 				}
@@ -347,8 +362,8 @@ func describeColumns(ctx context.Context, tx pgx.Tx, schema, table string, limit
 	return columns, nil
 }
 
-func describeEnumValues(ctx context.Context, tx pgx.Tx, typeSchema, typeName string) ([]string, error) {
-	rows, err := tx.Query(ctx, enumValuesSQL, typeSchema, typeName)
+func describeEnumValues(ctx context.Context, tx pgx.Tx, typeSchema, typeName string, limit int) ([]string, error) {
+	rows, err := tx.Query(ctx, enumValuesSQL, typeSchema, typeName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe enum values: %w", err)
 	}
@@ -396,7 +411,7 @@ func describeIndexes(ctx context.Context, tx pgx.Tx, schema, table string, limit
 // while a composite FK now produces correctly-paired rows instead of a
 // cross join.
 func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ForeignKeyInfo, error) {
-	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table, limit)
+	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe foreign keys: %w", err)
 	}
@@ -410,6 +425,9 @@ func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, l
 			return nil, fmt.Errorf("scan foreign key: %w", err)
 		}
 		for i := range columns {
+			if len(fks) >= limit {
+				return fks, nil
+			}
 			fks = append(fks, driver.ForeignKeyInfo{
 				Column:         columns[i],
 				RefTable:       refTable,
@@ -448,8 +466,8 @@ func describeReverseForeignKeys(ctx context.Context, tx pgx.Tx, schema, table st
 	return refs, nil
 }
 
-func describePrimaryKey(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]string, error) {
-	rows, err := tx.Query(ctx, primaryKeySQL, schema, table, limit)
+func describePrimaryKey(ctx context.Context, tx pgx.Tx, schema, table string) ([]string, error) {
+	rows, err := tx.Query(ctx, primaryKeySQL, schema, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe primary key: %w", err)
 	}

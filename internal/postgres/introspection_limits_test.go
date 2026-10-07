@@ -111,3 +111,94 @@ func TestDescribeTable_ReverseForeignKeysRespectLimit(t *testing.T) {
 		t.Fatalf("got %d referenced_by entries, want exactly 1 (limit should cap reverse foreign keys too), got %+v", len(desc.ReferencedBy), desc.ReferencedBy)
 	}
 }
+
+// TestDescribeTable_CompositePrimaryKeyIgnoresLimit is a regression test
+// for a code-review finding: primaryKeySQL applied the row-cap LIMIT
+// directly to the per-column rows of a single primary key, so a 2-column
+// PK under Limit:1 silently returned only the first column instead of
+// the whole key. A primary key's column list is one logical unit, not a
+// capped row collection, so it must come back complete regardless of
+// --limit.
+func TestDescribeTable_CompositePrimaryKeyIgnoresLimit(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	if _, err := c.pgxConn.Exec(ctx, "create table if not exists dbcli_pk_limit_test (a int, b int, primary key (a, b))"); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_pk_limit_test")
+	})
+
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_pk_limit_test", driver.QueryOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(desc.PrimaryKey) != 2 || desc.PrimaryKey[0] != "a" || desc.PrimaryKey[1] != "b" {
+		t.Fatalf("got primary_key %v, want [a b] (a composite key must not be truncated by --limit)", desc.PrimaryKey)
+	}
+}
+
+// TestDescribeTable_CompositeForeignKeyRespectsLimit is a regression test
+// for a code-review finding: foreignKeysSQL's LIMIT capped the number of
+// *constraints* returned, before DescribeTable expands each constraint
+// into one row per column pair. A single 4-column composite FK under
+// Limit:1 returned 4 foreign_keys rows, exceeding the cap the rest of
+// this codebase treats as a hard ceiling.
+func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	setup := `
+		create table if not exists dbcli_fk_cap_parent_test (a int, b int, c int, d int, primary key (a, b, c, d));
+		create table if not exists dbcli_fk_cap_child_test (
+			w int, x int, y int, z int,
+			foreign key (w, x, y, z) references dbcli_fk_cap_parent_test(a, b, c, d)
+		);
+	`
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cap_child_test, dbcli_fk_cap_parent_test")
+	})
+
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_cap_child_test", driver.QueryOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(desc.ForeignKeys) != 1 {
+		t.Fatalf("got %d foreign_keys rows, want exactly 1 (a 4-column composite FK must not bypass --limit), got %+v", len(desc.ForeignKeys), desc.ForeignKeys)
+	}
+}
+
+// TestDescribeTable_EnumValuesRespectLimit is a regression test for a
+// code-review finding: enumValuesSQL had no LIMIT at all, unlike every
+// other introspection query in this file, so an enum with many labels
+// would return unbounded rows regardless of --limit.
+func TestDescribeTable_EnumValuesRespectLimit(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	if _, err := c.pgxConn.Exec(ctx, "create type dbcli_enum_limit_test_status as enum ('a', 'b', 'c')"); err != nil {
+		t.Fatalf("create type: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_enum_limit_test")
+		c.pgxConn.Exec(context.Background(), "drop type if exists dbcli_enum_limit_test_status")
+	})
+	if _, err := c.pgxConn.Exec(ctx, "create table dbcli_enum_limit_test (status dbcli_enum_limit_test_status)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	desc, err := c.DescribeTable(ctx, "public", "dbcli_enum_limit_test", driver.QueryOptions{Limit: 1})
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+	if len(desc.Columns) != 1 {
+		t.Fatalf("expected the column limit to also cap to 1 column, got %d", len(desc.Columns))
+	}
+	if len(desc.Columns[0].EnumValues) != 1 {
+		t.Fatalf("got enum_values %v, want exactly 1 label (--limit must cap enum value lookups too)", desc.Columns[0].EnumValues)
+	}
+}
