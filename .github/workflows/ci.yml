@@ -29,11 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every currently-supported Postgres major (14-18), plus 13 (EOL
-        # ~Nov 2025) since nothing in this codebase is version-gated and
-        # it's one more data point for free. Drop a version here once it's
-        # old enough that keeping it green stops being worth the matrix
-        # slot, and add the next major once it ships.
+        # 13 is EOL; kept anyway since nothing here is version-gated.
         postgres: ['13', '14', '15', '16', '17', '18']
     services:
       postgres:
