@@ -108,12 +108,10 @@ func (c *conn) ListSchema(ctx context.Context, schema string, opts driver.QueryO
 	return tables, nil
 }
 
-// columnsSQL joins to pg_attribute by column name (not
-// information_schema.columns' ordinal_position) to get the real attnum
-// for col_description: ordinal_position is a logical, dropped-columns-
-// excluded position that can diverge from attnum on a table that has
-// ever had a column dropped, which would point the comment lookup at the
-// wrong column.
+// columnsSQL joins pg_attribute by column name to get the real attnum for
+// col_description, instead of information_schema's ordinal_position,
+// which renumbers around dropped columns and can point the comment
+// lookup at the wrong one.
 const columnsSQL = `
 SELECT c.column_name,
        c.data_type,
@@ -154,19 +152,17 @@ GROUP BY i.relname, ix.indisunique, ix.indisprimary
 ORDER BY i.relname
 LIMIT $3`
 
-// foreignKeysSQL finds the foreign keys owned by one table, pairing each
-// constraint's local and referenced columns by ordinal position
-// (conkey/confkey, unnested WITH ORDINALITY and joined on that ordinal) —
-// not by an incidental join on constraint_name alone, which silently
-// cross-joins a composite FK's columns. One row per constraint, with the
-// full ordered column lists; DescribeTable expands each into one
-// driver.ForeignKeyInfo per column pair.
+// foreignKeysSQL finds a table's own foreign keys, pairing local and
+// referenced columns by ordinal position (conkey/confkey via unnest WITH
+// ORDINALITY), not by joining on constraint_name alone, which cross-joins
+// a composite FK's columns. One row per constraint; DescribeTable expands
+// each into one driver.ForeignKeyInfo per column pair.
 //
-// No LIMIT here: a table's own FK constraint count is bounded by its own
-// column count, not by data scale, so it's safe to fetch all of them.
-// describeForeignKeys applies the row cap itself, after expansion, since
-// a LIMIT at this level would cap constraints, not the expanded rows a
-// composite FK produces, letting a wide composite FK blow past the cap.
+// No LIMIT: a table's FK count is bounded by its own columns, not data
+// scale, so fetching all of them is safe. describeForeignKeys caps the
+// row count itself after expansion, since a LIMIT here would cap
+// constraints, not the expanded rows, letting a wide composite FK blow
+// past the cap.
 const foreignKeysSQL = `
 SELECT con.conname AS constraint_name,
        rn.nspname AS ref_schema,
@@ -186,8 +182,8 @@ WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
 GROUP BY con.conname, rn.nspname, rc.relname
 ORDER BY con.conname`
 
-// reverseForeignKeysSQL is foreignKeysSQL with the direction flipped: it
-// finds foreign keys owned by *other* tables that reference this one.
+// reverseForeignKeysSQL is foreignKeysSQL with the direction flipped:
+// foreign keys owned by other tables that reference this one.
 const reverseForeignKeysSQL = `
 SELECT con.conname AS constraint_name,
        n.nspname AS schema,
@@ -208,10 +204,9 @@ GROUP BY con.conname, n.nspname, c.relname
 ORDER BY con.conname
 LIMIT $3`
 
-// primaryKeySQL has no row-cap LIMIT: a primary key's column list is one
-// logical unit, not a capped collection, and Postgres itself caps a
-// single index/constraint at 32 columns, so there's no row-explosion
-// risk in leaving it unbounded here.
+// No row-cap LIMIT: a PK's column list is one unit, not a capped
+// collection, and Postgres already caps a constraint at 32 columns, so
+// there's no row-explosion risk here.
 const primaryKeySQL = `
 SELECT a.attname
 FROM pg_catalog.pg_constraint con
@@ -240,17 +235,17 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relname = $2`
 
 // viewDefinitionSQL filters to relkind IN ('v', 'm') itself, so it's
-// always safe to run: it returns no row for an ordinary table.
+// always safe to run and returns no row for an ordinary table.
 const viewDefinitionSQL = `
 SELECT pg_get_viewdef(c.oid, true)
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('v', 'm')`
 
-// tableExistsSQL queries pg_class/pg_namespace directly rather than
-// information_schema.tables, which (per the SQL standard it implements)
-// excludes materialized views and doesn't cover partitioned/foreign
-// tables either. relkind here matches exactly what schema/schemas list.
+// Queries pg_class/pg_namespace directly instead of
+// information_schema.tables, which excludes materialized views and
+// partitioned/foreign tables per the SQL standard. relkind here matches
+// schema/schemas.
 const tableExistsSQL = `
 SELECT EXISTS (
   SELECT 1 FROM pg_catalog.pg_class c
@@ -259,9 +254,7 @@ SELECT EXISTS (
     AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
 )`
 
-// DescribeTable runs all of its queries (existence check, columns,
-// indexes, foreign keys, reverse foreign keys, primary key, unique/check
-// constraints, comments, view definition) inside one read-only,
+// DescribeTable runs all its queries inside one read-only,
 // timeout-bounded transaction, so the whole operation shares a single
 // deadline instead of each query getting its own.
 func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts driver.QueryOptions) (*driver.TableDescription, error) {
@@ -338,8 +331,8 @@ func describeColumns(ctx context.Context, tx pgx.Tx, schema, table string, limit
 		return nil, fmt.Errorf("describe columns iteration: %w", err)
 	}
 
-	// Enum labels are looked up once per distinct (schema, type), not once
-	// per column, since several columns can share an enum type.
+	// Enum labels are looked up once per distinct (schema, type), not per
+	// column, since columns can share an enum type.
 	type enumKey struct{ schema, name string }
 	cache := map[enumKey][]string{}
 	columns := make([]driver.ColumnInfo, 0, len(raw))
@@ -404,12 +397,10 @@ func describeIndexes(ctx context.Context, tx pgx.Tx, schema, table string, limit
 	return indexes, nil
 }
 
-// expandForeignKeyRow turns one foreignKeysSQL/reverseForeignKeysSQL row
-// (one constraint, with its full ordered column lists) into one
-// driver.ForeignKeyInfo per column pair, so a single-column FK's shape
-// matches exactly what every version of this field has always returned,
-// while a composite FK now produces correctly-paired rows instead of a
-// cross join.
+// describeForeignKeys expands one foreignKeysSQL row (a constraint with
+// its full column lists) into one driver.ForeignKeyInfo per column pair,
+// so a single-column FK's shape is unchanged while a composite FK is
+// correctly paired instead of cross-joined.
 func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ForeignKeyInfo, error) {
 	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table)
 	if err != nil {

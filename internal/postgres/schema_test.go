@@ -140,14 +140,12 @@ func TestSample_UnknownTableErrors(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_CompositeForeignKeyPairsColumnsCorrectly is the
-// regression test for the original foreignKeysSQL bug: joining
+// Regression test for the original foreignKeysSQL bug: joining
 // key_column_usage/constraint_column_usage on (constraint_name,
-// table_schema) alone, with no join on ordinal position, silently
-// cross-joined a composite FK's columns (2 columns x 2 columns = 4 rows
-// with wrong pairings like x->b, y->a, instead of the correct 2 rows).
-// The pg_constraint/unnest-WITH-ORDINALITY rewrite pairs by ordinal
-// position, so this must produce exactly 2 rows, correctly paired.
+// table_schema) alone, with no ordinal-position join, cross-joined a
+// composite FK's columns (2x2 = 4 rows, wrong pairings like x->b, y->a).
+// The pg_constraint/unnest-WITH-ORDINALITY rewrite must produce exactly
+// 2 rows, correctly paired.
 func TestDescribeTable_CompositeForeignKeyPairsColumnsCorrectly(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -194,9 +192,9 @@ func TestDescribeTable_CompositeForeignKeyPairsColumnsCorrectly(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_CrossSchemaForeignKeyReportsRefSchema covers the other
-// half of the original bug: the old query never selected the referenced
-// table's schema at all, so a cross-schema FK's target was ambiguous.
+// Covers the other half of the original bug: the old query never
+// selected the referenced table's schema, so a cross-schema FK's target
+// was ambiguous.
 func TestDescribeTable_CrossSchemaForeignKeyReportsRefSchema(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -310,13 +308,11 @@ func TestDescribeTable_ReturnsPrimaryKeyUniqueAndCheckConstraints(t *testing.T) 
 	}
 }
 
-// TestDescribeTable_CommentsSurviveADroppedColumn is the regression test
-// for using the real pg_attribute attnum (not information_schema's
-// ordinal_position) when looking up col_description: ordinal_position
-// renumbers to ignore dropped columns, so after dropping a column,
-// ordinal_position and attnum diverge for every column after it. Using
-// ordinal_position here would point col_description at the wrong physical
-// column and silently return the wrong comment (or none).
+// Regression test for using the real pg_attribute attnum, not
+// information_schema's ordinal_position, in col_description:
+// ordinal_position renumbers around dropped columns, so after a drop it
+// diverges from attnum and would point the comment lookup at the wrong
+// column.
 func TestDescribeTable_CommentsSurviveADroppedColumn(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -436,11 +432,10 @@ func TestDescribeTable_ReturnsViewDefinitionForView(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_DescribesMaterializedView is a regression test for a
-// code-review finding: tableExistsSQL queried information_schema.tables,
-// which (per the SQL standard it implements) excludes materialized
-// views, so describe on a matview failed with "table not found" even
-// though this PR added view_definition support for exactly this case.
+// Regression test: tableExistsSQL queried information_schema.tables,
+// which excludes materialized views per the SQL standard, so describe on
+// a matview failed with "table not found" despite this PR adding
+// view_definition support for it.
 func TestDescribeTable_DescribesMaterializedView(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -550,14 +545,12 @@ func TestListSchema_IncludesForeignTable(t *testing.T) {
 	}
 }
 
-// TestListSchema_StatsKnownReflectsAnalyzeState covers the stats-known
-// signal: a freshly created table has never been vacuumed or analyzed, so
-// stats_known must be false (estimated_rows is meaningless, not "confirmed
-// empty"). After an explicit ANALYZE, stats_known flips to true and
-// estimated_rows reflects the real count. This is deliberately checked via
-// pg_stat_user_tables' last_vacuum/last_(auto)analyze columns rather than
-// reltuples' sign, since the reltuples == -1 "never analyzed" sentinel is
-// PG14+ only; pg_stat_user_tables' columns are accurate back to PG 8.3.
+// Covers stats_known: a freshly created table has never been analyzed,
+// so stats_known must be false (estimated_rows would otherwise look like
+// a confirmed empty table). After ANALYZE it flips to true with the real
+// count. Checked via pg_stat_user_tables' last_(auto)analyze columns
+// rather than reltuples' sign, since the reltuples == -1 sentinel is
+// PG14+ only; these columns are accurate back to PG 8.3.
 func TestListSchema_StatsKnownReflectsAnalyzeState(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -597,10 +590,9 @@ func TestListSchema_StatsKnownReflectsAnalyzeState(t *testing.T) {
 		t.Fatalf("analyze: %v", err)
 	}
 
-	// pg_stat_user_tables is fed by the stats collector asynchronously on
-	// older Postgres versions (pre-PG15's shared-memory stats), so
-	// last_analyze can lag a moment behind the ANALYZE that set it. Poll
-	// with a bounded timeout instead of checking once.
+	// pg_stat_user_tables updates asynchronously on pre-PG15 (before
+	// shared-memory stats), so last_analyze can lag behind the ANALYZE
+	// that set it. Poll with a bounded timeout instead of checking once.
 	deadline := time.Now().Add(5 * time.Second)
 	var after driver.TableInfo
 	for {

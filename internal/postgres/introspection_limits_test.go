@@ -112,13 +112,10 @@ func TestDescribeTable_ReverseForeignKeysRespectLimit(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_CompositePrimaryKeyIgnoresLimit is a regression test
-// for a code-review finding: primaryKeySQL applied the row-cap LIMIT
-// directly to the per-column rows of a single primary key, so a 2-column
-// PK under Limit:1 silently returned only the first column instead of
-// the whole key. A primary key's column list is one logical unit, not a
-// capped row collection, so it must come back complete regardless of
-// --limit.
+// Regression test: primaryKeySQL used to apply the row-cap LIMIT per
+// column, so a 2-column PK under Limit:1 returned only the first column.
+// A PK's column list is one unit, not a capped collection, so it must
+// come back complete regardless of --limit.
 func TestDescribeTable_CompositePrimaryKeyIgnoresLimit(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -139,12 +136,9 @@ func TestDescribeTable_CompositePrimaryKeyIgnoresLimit(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_CompositeForeignKeyRespectsLimit is a regression test
-// for a code-review finding: foreignKeysSQL's LIMIT capped the number of
-// *constraints* returned, before DescribeTable expands each constraint
-// into one row per column pair. A single 4-column composite FK under
-// Limit:1 returned 4 foreign_keys rows, exceeding the cap the rest of
-// this codebase treats as a hard ceiling.
+// Regression test: foreignKeysSQL's LIMIT capped constraints, not the
+// rows DescribeTable expands them into, so a 4-column composite FK under
+// Limit:1 returned 4 foreign_keys rows instead of 1.
 func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -172,10 +166,9 @@ func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
 	}
 }
 
-// TestDescribeTable_EnumValuesRespectLimit is a regression test for a
-// code-review finding: enumValuesSQL had no LIMIT at all, unlike every
-// other introspection query in this file, so an enum with many labels
-// would return unbounded rows regardless of --limit.
+// Regression test: enumValuesSQL had no LIMIT, unlike every other
+// introspection query here, so an enum with many labels returned
+// unbounded rows.
 func TestDescribeTable_EnumValuesRespectLimit(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()

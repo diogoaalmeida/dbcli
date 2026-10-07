@@ -30,10 +30,9 @@ type TableInfo struct {
 	Name          string `json:"name"`
 	Kind          string `json:"kind"` // "table", "view", "materialized_view", "partitioned_table", or "foreign_table"
 	EstimatedRows int64  `json:"estimated_rows"`
-	// StatsKnown is false when the relation has never been vacuumed or
-	// analyzed (so EstimatedRows is a meaningless 0, not a confirmed empty
-	// table), and for relation kinds with no storage-level stats (views,
-	// foreign tables).
+	// StatsKnown is false for a never-analyzed relation (EstimatedRows is
+	// then a meaningless 0) or one with no storage-level stats, like
+	// views and foreign tables.
 	StatsKnown bool `json:"stats_known"`
 }
 
@@ -50,8 +49,7 @@ type ColumnInfo struct {
 	Nullable bool    `json:"nullable"`
 	Default  *string `json:"default,omitempty"`
 	Comment  *string `json:"comment,omitempty"`
-	// EnumValues is set when Type is an enum, listing its labels in
-	// definition order.
+	// EnumValues holds an enum column's labels in definition order.
 	EnumValues []string `json:"enum_values,omitempty"`
 }
 
@@ -63,11 +61,10 @@ type IndexInfo struct {
 	Primary bool     `json:"primary"`
 }
 
-// ForeignKeyInfo describes one foreign key of a described table. Column and
-// RefColumn are one column pair of the constraint named by ConstraintName;
-// for a composite foreign key, one ForeignKeyInfo is emitted per column
-// pair, each carrying the full ordered Columns/RefColumns of that
-// constraint so callers can regroup without re-deriving pairing.
+// ForeignKeyInfo describes one foreign key. Column/RefColumn are one pair
+// from the constraint named by ConstraintName; a composite FK emits one
+// ForeignKeyInfo per pair, each carrying the full Columns/RefColumns so
+// callers can regroup without re-deriving the pairing.
 type ForeignKeyInfo struct {
 	Column         string   `json:"column"`
 	RefTable       string   `json:"ref_table"`
@@ -79,7 +76,7 @@ type ForeignKeyInfo struct {
 }
 
 // ReferencingForeignKey describes a foreign key in another table that
-// points at the described table (the reverse of ForeignKeyInfo).
+// points at this one, the reverse of ForeignKeyInfo.
 type ReferencingForeignKey struct {
 	ConstraintName string   `json:"constraint_name"`
 	Schema         string   `json:"schema"`
@@ -88,9 +85,8 @@ type ReferencingForeignKey struct {
 	RefColumns     []string `json:"ref_columns"`
 }
 
-// ConstraintInfo describes a named constraint by its definition text, as
-// reported by pg_get_constraintdef (e.g. "UNIQUE (email)" or
-// "CHECK (price > 0)").
+// ConstraintInfo is a named constraint's definition text, as
+// pg_get_constraintdef reports it (e.g. "UNIQUE (email)").
 type ConstraintInfo struct {
 	Name       string `json:"name"`
 	Definition string `json:"definition"`
