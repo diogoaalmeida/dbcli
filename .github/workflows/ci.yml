@@ -6,11 +6,38 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "gofmt needs to be run on:"
+            echo "$fmt_out"
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go build ./...
+
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every currently-supported Postgres major (14-18), plus 13 (EOL
+        # ~Nov 2025) since nothing in this codebase is version-gated and
+        # it's one more data point for free. Drop a version here once it's
+        # old enough that keeping it green stops being worth the matrix
+        # slot, and add the next major once it ships.
+        postgres: ['13', '14', '15', '16', '17', '18']
     services:
       postgres:
-        image: postgres:15
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -27,14 +54,4 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: gofmt
-        run: |
-          fmt_out="$(gofmt -l .)"
-          if [ -n "$fmt_out" ]; then
-            echo "gofmt needs to be run on:"
-            echo "$fmt_out"
-            exit 1
-          fi
-      - run: go vet ./...
-      - run: go build ./...
       - run: go test ./...
