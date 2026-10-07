@@ -496,6 +496,83 @@ func TestListSchema_IncludesPartitionedTable(t *testing.T) {
 	}
 }
 
+// TestListSchema_PartitionedTableParentNeverShowsStatsKnown documents a
+// known, accepted limitation flagged in review: a partitioned table has
+// no storage of its own, so autovacuum only ever analyzes its leaf
+// partitions, never the parent. The parent's own stats_known and
+// estimated_rows stay false/0 forever, even once its partitions hold
+// real, analyzed data. Fixing this would mean aggregating reltuples and
+// analyze-status across pg_inherits children, which is more machinery
+// than this phase's scope justifies; this test exists so that remains a
+// documented tradeoff, not a silent surprise.
+func TestListSchema_PartitionedTableParentNeverShowsStatsKnown(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+
+	setup := `
+		create table if not exists dbcli_part_stats_test (id int, created_at date) partition by range (created_at);
+		create table if not exists dbcli_part_stats_test_p1 partition of dbcli_part_stats_test
+			for values from ('2020-01-01') to ('2021-01-01');
+	`
+	if _, err := c.pgxConn.Exec(ctx, setup); err != nil {
+		t.Fatalf("test fixture setup: %v", err)
+	}
+	t.Cleanup(func() {
+		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_part_stats_test")
+	})
+	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_part_stats_test select g, '2020-06-01'::date from generate_series(1,50) g"); err != nil {
+		t.Fatalf("test fixture insert: %v", err)
+	}
+	// Analyze only the leaf, not the parent: this is what autovacuum
+	// itself would eventually do on its own, since a partitioned
+	// parent has no storage parameters and autovacuum never targets it
+	// directly.
+	if _, err := c.pgxConn.Exec(ctx, "analyze dbcli_part_stats_test_p1"); err != nil {
+		t.Fatalf("analyze leaf: %v", err)
+	}
+
+	findTables := func() (parent, leaf *driver.TableInfo) {
+		tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{})
+		if err != nil {
+			t.Fatalf("ListSchema: %v", err)
+		}
+		for i := range tables {
+			switch tables[i].Name {
+			case "dbcli_part_stats_test":
+				parent = &tables[i]
+			case "dbcli_part_stats_test_p1":
+				leaf = &tables[i]
+			}
+		}
+		return parent, leaf
+	}
+
+	// pg_stat_user_tables lags behind ANALYZE asynchronously on pre-PG15
+	// (before shared-memory stats); poll with a bounded timeout instead
+	// of checking once.
+	deadline := time.Now().Add(5 * time.Second)
+	var parent, leaf *driver.TableInfo
+	for {
+		parent, leaf = findTables()
+		if parent == nil || leaf == nil {
+			t.Fatalf("expected both parent and leaf in the schema listing")
+		}
+		if leaf.StatsKnown {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected the analyzed leaf to show stats_known=true (waited 5s for the stats collector), got %+v", leaf)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if leaf.EstimatedRows != 50 {
+		t.Fatalf("expected the analyzed leaf to show estimated_rows=50, got %+v", leaf)
+	}
+	if parent.StatsKnown != false || parent.EstimatedRows != 0 {
+		t.Fatalf("expected the parent to still show stats_known=false, estimated_rows=0 despite its partition holding real analyzed data (documented limitation), got %+v", parent)
+	}
+}
+
 func TestListSchema_IncludesForeignTable(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()

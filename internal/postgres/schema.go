@@ -158,11 +158,12 @@ LIMIT $3`
 // a composite FK's columns. One row per constraint; DescribeTable expands
 // each into one driver.ForeignKeyInfo per column pair.
 //
-// No LIMIT: a table's FK count is bounded by its own columns, not data
-// scale, so fetching all of them is safe. describeForeignKeys caps the
-// row count itself after expansion, since a LIMIT here would cap
-// constraints, not the expanded rows, letting a wide composite FK blow
-// past the cap.
+// LIMIT here bounds the number of constraints fetched, not the number of
+// expanded output rows (a composite FK can expand into more rows than
+// constraints fetched); describeForeignKeys enforces the real cap itself
+// after expansion. A table's FK constraint count is not bounded by its
+// own column count (a single column can carry multiple FK constraints to
+// different tables), so this can't be left unbounded.
 const foreignKeysSQL = `
 SELECT con.conname AS constraint_name,
        rn.nspname AS ref_schema,
@@ -180,7 +181,8 @@ JOIN pg_catalog.pg_attribute att_child ON att_child.attrelid = con.conrelid AND 
 JOIN pg_catalog.pg_attribute att_parent ON att_parent.attrelid = con.confrelid AND att_parent.attnum = cfk.attnum
 WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
 GROUP BY con.conname, rn.nspname, rc.relname
-ORDER BY con.conname`
+ORDER BY con.conname
+LIMIT $3`
 
 // reverseForeignKeysSQL is foreignKeysSQL with the direction flipped:
 // foreign keys owned by other tables that reference this one.
@@ -401,8 +403,14 @@ func describeIndexes(ctx context.Context, tx pgx.Tx, schema, table string, limit
 // its full column lists) into one driver.ForeignKeyInfo per column pair,
 // so a single-column FK's shape is unchanged while a composite FK is
 // correctly paired instead of cross-joined.
+//
+// A constraint is only ever included whole: if adding all of its column
+// pairs would exceed limit, that constraint is dropped entirely rather
+// than partially included, since a partial row would carry the full
+// Columns/RefColumns of a constraint it didn't fully represent, with
+// nothing to signal the pair list was cut short.
 func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ForeignKeyInfo, error) {
-	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table)
+	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe foreign keys: %w", err)
 	}
@@ -415,10 +423,10 @@ func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, l
 		if err := rows.Scan(&constraintName, &refSchema, &refTable, &columns, &refColumns); err != nil {
 			return nil, fmt.Errorf("scan foreign key: %w", err)
 		}
+		if len(fks)+len(columns) > limit {
+			return fks, nil
+		}
 		for i := range columns {
-			if len(fks) >= limit {
-				return fks, nil
-			}
 			fks = append(fks, driver.ForeignKeyInfo{
 				Column:         columns[i],
 				RefTable:       refTable,

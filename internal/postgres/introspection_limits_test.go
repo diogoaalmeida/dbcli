@@ -139,6 +139,15 @@ func TestDescribeTable_CompositePrimaryKeyIgnoresLimit(t *testing.T) {
 // Regression test: foreignKeysSQL's LIMIT capped constraints, not the
 // rows DescribeTable expands them into, so a 4-column composite FK under
 // Limit:1 returned 4 foreign_keys rows instead of 1.
+// TestDescribeTable_CompositeForeignKeyRespectsLimit is a regression test
+// for a code-review finding that went through two rounds: the first fix
+// let a constraint's expansion stop mid-way through under a tight limit,
+// which bounded the row count correctly but left the surviving rows
+// carrying the full, untruncated Columns/RefColumns of a constraint they
+// no longer fully represented, with nothing to signal the cut. The real
+// fix treats a constraint as all-or-nothing: a 4-column composite FK
+// under a limit it can't fully fit in is dropped entirely, never
+// partially included.
 func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
 	c := testConn(t)
 	ctx := context.Background()
@@ -157,13 +166,30 @@ func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
 		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cap_child_test, dbcli_fk_cap_parent_test")
 	})
 
-	desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_cap_child_test", driver.QueryOptions{Limit: 1})
-	if err != nil {
-		t.Fatalf("DescribeTable: %v", err)
-	}
-	if len(desc.ForeignKeys) != 1 {
-		t.Fatalf("got %d foreign_keys rows, want exactly 1 (a 4-column composite FK must not bypass --limit), got %+v", len(desc.ForeignKeys), desc.ForeignKeys)
-	}
+	t.Run("limit too small to fit the whole constraint drops it entirely", func(t *testing.T) {
+		desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_cap_child_test", driver.QueryOptions{Limit: 1})
+		if err != nil {
+			t.Fatalf("DescribeTable: %v", err)
+		}
+		if len(desc.ForeignKeys) != 0 {
+			t.Fatalf("got %d foreign_keys rows, want 0 (a 4-column FK can't fit under limit 1, so it must be dropped whole, not partially included), got %+v", len(desc.ForeignKeys), desc.ForeignKeys)
+		}
+	})
+
+	t.Run("limit that exactly fits includes the whole constraint with accurate arrays", func(t *testing.T) {
+		desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_cap_child_test", driver.QueryOptions{Limit: 4})
+		if err != nil {
+			t.Fatalf("DescribeTable: %v", err)
+		}
+		if len(desc.ForeignKeys) != 4 {
+			t.Fatalf("got %d foreign_keys rows, want exactly 4, got %+v", len(desc.ForeignKeys), desc.ForeignKeys)
+		}
+		for _, fk := range desc.ForeignKeys {
+			if len(fk.Columns) != 4 || len(fk.RefColumns) != 4 {
+				t.Fatalf("expected every row's Columns/RefColumns to be the full 4-element constraint, got %+v", fk)
+			}
+		}
+	})
 }
 
 // Regression test: enumValuesSQL had no LIMIT, unlike every other

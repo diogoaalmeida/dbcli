@@ -32,7 +32,11 @@ type TableInfo struct {
 	EstimatedRows int64  `json:"estimated_rows"`
 	// StatsKnown is false for a never-analyzed relation (EstimatedRows is
 	// then a meaningless 0) or one with no storage-level stats, like
-	// views and foreign tables.
+	// views and foreign tables. For a partitioned table this is almost
+	// always false: autovacuum only analyzes its leaf partitions, never
+	// the parent itself, so EstimatedRows stays 0 on the parent row even
+	// when its partitions hold real data. Sum the partitions' own
+	// estimated_rows (listed alongside the parent) for the real count.
 	StatsKnown bool `json:"stats_known"`
 }
 
@@ -94,17 +98,21 @@ type ConstraintInfo struct {
 
 // TableDescription is the full result of describing one table.
 type TableDescription struct {
-	Schema            string                  `json:"schema"`
-	Table             string                  `json:"table"`
-	Columns           []ColumnInfo            `json:"columns"`
-	Indexes           []IndexInfo             `json:"indexes"`
-	ForeignKeys       []ForeignKeyInfo        `json:"foreign_keys"`
-	PrimaryKey        []string                `json:"primary_key,omitempty"`
-	UniqueConstraints []ConstraintInfo        `json:"unique_constraints,omitempty"`
-	CheckConstraints  []ConstraintInfo        `json:"check_constraints,omitempty"`
-	Comment           *string                 `json:"comment,omitempty"`
-	ViewDefinition    *string                 `json:"view_definition,omitempty"`
-	ReferencedBy      []ReferencingForeignKey `json:"referenced_by,omitempty"`
+	Schema            string           `json:"schema"`
+	Table             string           `json:"table"`
+	Columns           []ColumnInfo     `json:"columns"`
+	Indexes           []IndexInfo      `json:"indexes"`
+	ForeignKeys       []ForeignKeyInfo `json:"foreign_keys"`
+	PrimaryKey        []string         `json:"primary_key,omitempty"`
+	UniqueConstraints []ConstraintInfo `json:"unique_constraints,omitempty"`
+	CheckConstraints  []ConstraintInfo `json:"check_constraints,omitempty"`
+	Comment           *string          `json:"comment,omitempty"`
+	ViewDefinition    *string          `json:"view_definition,omitempty"`
+	// ReferencedBy has no omitempty, matching ForeignKeys: both represent
+	// a "no relationships" case the same way, as null rather than an
+	// absent key, since they're direct mirrors of each other (forward vs
+	// reverse FK).
+	ReferencedBy []ReferencingForeignKey `json:"referenced_by"`
 }
 
 // QueryOptions carries the per-invocation safety knobs a Conn must enforce.
