@@ -25,6 +25,7 @@ jobs:
       - run: go build ./...
 
   test:
+    needs: lint
     name: postgres:${{ matrix.postgres }}
     runs-on: ubuntu-latest
     strategy:
