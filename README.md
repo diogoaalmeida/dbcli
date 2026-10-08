@@ -212,8 +212,9 @@ $ dbcli describe orders --profile prod --schema shop
 
 `describe` also reports `unique_constraints`/`check_constraints` (name +
 definition), table/column `comment`s, and `view_definition` for a view or
-materialized view, whichever of those apply to the table — all omitted
-when not applicable, same as `foreign_keys`/`enum_values` above.
+materialized view. These are omitted when they don't apply to the table,
+same as `enum_values` above. `foreign_keys` and `referenced_by` are
+always present, as `null` when there's nothing to report.
 
 ```bash
 $ dbcli query "select status::text, count(*) from shop.orders group by status" --profile prod
