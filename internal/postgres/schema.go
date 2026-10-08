@@ -16,18 +16,23 @@ SELECT n.nspname AS schema,
          WHEN 'r' THEN 'table'
          WHEN 'v' THEN 'view'
          WHEN 'm' THEN 'materialized_view'
+         WHEN 'p' THEN 'partitioned_table'
+         WHEN 'f' THEN 'foreign_table'
          ELSE c.relkind::text
        END AS kind,
-       GREATEST(c.reltuples, 0)::bigint AS estimated_rows
+       GREATEST(c.reltuples, 0)::bigint AS estimated_rows,
+       (s.last_vacuum IS NOT NULL OR s.last_autovacuum IS NOT NULL
+        OR s.last_analyze IS NOT NULL OR s.last_autoanalyze IS NOT NULL) AS stats_known
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 'v', 'm') AND n.nspname = $1
+LEFT JOIN pg_catalog.pg_stat_user_tables s ON s.relid = c.oid
+WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f') AND n.nspname = $1
 ORDER BY c.relname
 LIMIT $2`
 
 const listSchemasSQL = `
 SELECT n.nspname AS name,
-       count(c.oid) FILTER (WHERE c.relkind IN ('r', 'v', 'm')) AS table_count
+       count(c.oid) FILTER (WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f')) AS table_count
 FROM pg_catalog.pg_namespace n
 LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid
 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
@@ -38,12 +43,13 @@ ORDER BY n.nspname
 LIMIT $1`
 
 // ListSchemas lists every non-system schema in the database, with a count
-// of the tables/views/materialized views each one holds. It's the entry
-// point for exploring an unfamiliar database: run this first, then
-// ListSchema(name) to see what's inside one of the schemas it reports.
-// Like every other query dbcli runs, this goes through a read-only,
-// timeout-bounded transaction and a hard row cap — a schema-per-tenant
-// database can have as many schemas as a data table has rows.
+// of the tables/views/materialized views/partitioned/foreign tables each
+// one holds. It's the entry point for exploring an unfamiliar database:
+// run this first, then ListSchema(name) to see what's inside one of the
+// schemas it reports. Like every other query dbcli runs, this goes
+// through a read-only, timeout-bounded transaction and a hard row cap — a
+// schema-per-tenant database can have as many schemas as a data table has
+// rows.
 func (c *conn) ListSchemas(ctx context.Context, opts driver.QueryOptions) ([]driver.SchemaInfo, error) {
 	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
 	if err != nil {
@@ -91,7 +97,7 @@ func (c *conn) ListSchema(ctx context.Context, schema string, opts driver.QueryO
 	var tables []driver.TableInfo
 	for rows.Next() {
 		var t driver.TableInfo
-		if err := rows.Scan(&t.Schema, &t.Name, &t.Kind, &t.EstimatedRows); err != nil {
+		if err := rows.Scan(&t.Schema, &t.Name, &t.Kind, &t.EstimatedRows, &t.StatsKnown); err != nil {
 			return nil, fmt.Errorf("scan table row: %w", err)
 		}
 		tables = append(tables, t)
@@ -102,48 +108,157 @@ func (c *conn) ListSchema(ctx context.Context, schema string, opts driver.QueryO
 	return tables, nil
 }
 
+// columnsSQL joins pg_attribute by column name to get the real attnum for
+// col_description, instead of information_schema's ordinal_position,
+// which renumbers around dropped columns and can point the comment
+// lookup at the wrong one.
 const columnsSQL = `
-SELECT column_name, data_type, (is_nullable = 'YES') AS nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = $1 AND table_name = $2
-ORDER BY ordinal_position
+SELECT c.column_name,
+       c.data_type,
+       c.udt_schema,
+       c.udt_name,
+       (c.is_nullable = 'YES') AS nullable,
+       c.column_default,
+       col_description(pgc.oid, pga.attnum) AS comment
+FROM information_schema.columns c
+JOIN pg_catalog.pg_class pgc ON pgc.relname = c.table_name
+JOIN pg_catalog.pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = c.table_schema
+JOIN pg_catalog.pg_attribute pga ON pga.attrelid = pgc.oid AND pga.attname = c.column_name
+WHERE c.table_schema = $1 AND c.table_name = $2
+ORDER BY c.ordinal_position
+LIMIT $3`
+
+const enumValuesSQL = `
+SELECT e.enumlabel
+FROM pg_catalog.pg_type t
+JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+WHERE n.nspname = $1 AND t.typname = $2
+ORDER BY e.enumsortorder
 LIMIT $3`
 
 const indexesSQL = `
 SELECT i.relname AS index_name,
        array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) AS columns,
-       ix.indisunique
+       ix.indisunique,
+       ix.indisprimary
 FROM pg_catalog.pg_class t
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
 JOIN pg_catalog.pg_index ix ON ix.indrelid = t.oid
 JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
 JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
 WHERE n.nspname = $1 AND t.relname = $2
-GROUP BY i.relname, ix.indisunique
+GROUP BY i.relname, ix.indisunique, ix.indisprimary
 ORDER BY i.relname
 LIMIT $3`
 
+// foreignKeysSQL finds a table's own foreign keys, pairing local and
+// referenced columns by ordinal position (conkey/confkey via unnest WITH
+// ORDINALITY), not by joining on constraint_name alone, which cross-joins
+// a composite FK's columns. One row per constraint; DescribeTable expands
+// each into one driver.ForeignKeyInfo per column pair.
+//
+// LIMIT here bounds the number of constraints fetched, not the number of
+// expanded output rows (a composite FK can expand into more rows than
+// constraints fetched); describeForeignKeys enforces the real cap itself
+// after expansion. A table's FK constraint count is not bounded by its
+// own column count (a single column can carry multiple FK constraints to
+// different tables), so this can't be left unbounded.
 const foreignKeysSQL = `
-SELECT kcu.column_name, ccu.table_name AS ref_table, ccu.column_name AS ref_column
-FROM information_schema.table_constraints tc
-JOIN information_schema.key_column_usage kcu
-  ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-JOIN information_schema.constraint_column_usage ccu
-  ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 AND tc.table_name = $2
-ORDER BY kcu.column_name
+SELECT con.conname AS constraint_name,
+       rn.nspname AS ref_schema,
+       rc.relname AS ref_table,
+       array_agg(att_child.attname ORDER BY ck.ord) AS columns,
+       array_agg(att_parent.attname ORDER BY ck.ord) AS ref_columns
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
+JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
+JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
+JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS cfk(attnum, ord) ON cfk.ord = ck.ord
+JOIN pg_catalog.pg_attribute att_child ON att_child.attrelid = con.conrelid AND att_child.attnum = ck.attnum
+JOIN pg_catalog.pg_attribute att_parent ON att_parent.attrelid = con.confrelid AND att_parent.attnum = cfk.attnum
+WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
+GROUP BY con.conname, rn.nspname, rc.relname
+ORDER BY con.conname
 LIMIT $3`
 
+// reverseForeignKeysSQL is foreignKeysSQL with the direction flipped:
+// foreign keys owned by other tables that reference this one.
+const reverseForeignKeysSQL = `
+SELECT con.conname AS constraint_name,
+       n.nspname AS schema,
+       c.relname AS "table",
+       array_agg(att_child.attname ORDER BY ck.ord) AS columns,
+       array_agg(att_parent.attname ORDER BY ck.ord) AS ref_columns
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
+JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
+JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
+JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS cfk(attnum, ord) ON cfk.ord = ck.ord
+JOIN pg_catalog.pg_attribute att_child ON att_child.attrelid = con.conrelid AND att_child.attnum = ck.attnum
+JOIN pg_catalog.pg_attribute att_parent ON att_parent.attrelid = con.confrelid AND att_parent.attnum = cfk.attnum
+WHERE con.contype = 'f' AND rn.nspname = $1 AND rc.relname = $2
+GROUP BY con.conname, n.nspname, c.relname
+ORDER BY con.conname
+LIMIT $3`
+
+// No row-cap LIMIT: a PK's column list is one unit, not a capped
+// collection, and Postgres already caps a constraint at 32 columns, so
+// there's no row-explosion risk here.
+const primaryKeySQL = `
+SELECT a.attname
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord) ON true
+JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ck.attnum
+WHERE con.contype = 'p' AND n.nspname = $1 AND c.relname = $2
+ORDER BY ck.ord`
+
+// uniqueAndCheckConstraintsSQL covers unique ('u') and check ('c')
+// constraints in one query; DescribeTable splits the rows by contype.
+const uniqueAndCheckConstraintsSQL = `
+SELECT con.conname, pg_get_constraintdef(con.oid) AS definition, con.contype
+FROM pg_catalog.pg_constraint con
+JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE con.contype IN ('u', 'c') AND n.nspname = $1 AND c.relname = $2
+ORDER BY con.conname
+LIMIT $3`
+
+const tableCommentSQL = `
+SELECT obj_description(c.oid, 'pg_class')
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2`
+
+// viewDefinitionSQL filters to relkind IN ('v', 'm') itself, so it's
+// always safe to run and returns no row for an ordinary table.
+const viewDefinitionSQL = `
+SELECT pg_get_viewdef(c.oid, true)
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('v', 'm')`
+
+// Queries pg_class/pg_namespace directly instead of
+// information_schema.tables, which excludes materialized views and
+// partitioned/foreign tables per the SQL standard. relkind here matches
+// schema/schemas.
 const tableExistsSQL = `
 SELECT EXISTS (
-  SELECT 1 FROM information_schema.tables
-  WHERE table_schema = $1 AND table_name = $2
+  SELECT 1 FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2
+    AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
 )`
 
-// DescribeTable runs all four of its queries (existence check, columns,
-// indexes, foreign keys) inside one read-only, timeout-bounded transaction,
-// so the whole operation shares a single deadline instead of each query
-// getting its own.
+// DescribeTable runs all its queries inside one read-only,
+// timeout-bounded transaction, so the whole operation shares a single
+// deadline instead of each query getting its own.
 func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts driver.QueryOptions) (*driver.TableDescription, error) {
 	if schema == "" {
 		schema = "public"
@@ -166,61 +281,255 @@ func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts dri
 	limit := clampLimit(opts.Limit)
 	desc := &driver.TableDescription{Schema: schema, Table: table}
 
+	if desc.Columns, err = describeColumns(ctx, tx, schema, table, limit); err != nil {
+		return nil, err
+	}
+	if desc.Indexes, err = describeIndexes(ctx, tx, schema, table, limit); err != nil {
+		return nil, err
+	}
+	if desc.ForeignKeys, err = describeForeignKeys(ctx, tx, schema, table, limit); err != nil {
+		return nil, err
+	}
+	if desc.ReferencedBy, err = describeReverseForeignKeys(ctx, tx, schema, table, limit); err != nil {
+		return nil, err
+	}
+	if desc.PrimaryKey, err = describePrimaryKey(ctx, tx, schema, table); err != nil {
+		return nil, err
+	}
+	if desc.UniqueConstraints, desc.CheckConstraints, err = describeConstraints(ctx, tx, schema, table, limit); err != nil {
+		return nil, err
+	}
+	if desc.Comment, err = describeTableComment(ctx, tx, schema, table); err != nil {
+		return nil, err
+	}
+	if desc.ViewDefinition, err = describeViewDefinition(ctx, tx, schema, table); err != nil {
+		return nil, err
+	}
+
+	return desc, nil
+}
+
+func describeColumns(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ColumnInfo, error) {
 	rows, err := tx.Query(ctx, columnsSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe columns: %w", err)
 	}
+	defer rows.Close()
+
+	type rawColumn struct {
+		col       driver.ColumnInfo
+		udtSchema string
+		udtName   string
+	}
+	var raw []rawColumn
 	for rows.Next() {
-		var col driver.ColumnInfo
-		if err := rows.Scan(&col.Name, &col.Type, &col.Nullable, &col.Default); err != nil {
-			rows.Close()
+		var rc rawColumn
+		if err := rows.Scan(&rc.col.Name, &rc.col.Type, &rc.udtSchema, &rc.udtName, &rc.col.Nullable, &rc.col.Default, &rc.col.Comment); err != nil {
 			return nil, fmt.Errorf("scan column: %w", err)
 		}
-		desc.Columns = append(desc.Columns, col)
+		raw = append(raw, rc)
 	}
-	rowsErr := rows.Err()
-	rows.Close()
-	if rowsErr != nil {
-		return nil, fmt.Errorf("describe columns iteration: %w", rowsErr)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe columns iteration: %w", err)
 	}
 
-	idxRows, err := tx.Query(ctx, indexesSQL, schema, table, limit)
+	// Enum labels are looked up once per distinct (schema, type), not per
+	// column, since columns can share an enum type.
+	type enumKey struct{ schema, name string }
+	cache := map[enumKey][]string{}
+	columns := make([]driver.ColumnInfo, 0, len(raw))
+	for _, rc := range raw {
+		if rc.col.Type == "USER-DEFINED" {
+			key := enumKey{rc.udtSchema, rc.udtName}
+			values, cached := cache[key]
+			if !cached {
+				var err error
+				values, err = describeEnumValues(ctx, tx, rc.udtSchema, rc.udtName, limit)
+				if err != nil {
+					return nil, err
+				}
+				cache[key] = values
+			}
+			rc.col.EnumValues = values
+		}
+		columns = append(columns, rc.col)
+	}
+	return columns, nil
+}
+
+func describeEnumValues(ctx context.Context, tx pgx.Tx, typeSchema, typeName string, limit int) ([]string, error) {
+	rows, err := tx.Query(ctx, enumValuesSQL, typeSchema, typeName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("describe enum values: %w", err)
+	}
+	defer rows.Close()
+
+	var values []string
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, fmt.Errorf("scan enum label: %w", err)
+		}
+		values = append(values, label)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe enum values iteration: %w", err)
+	}
+	return values, nil
+}
+
+func describeIndexes(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.IndexInfo, error) {
+	rows, err := tx.Query(ctx, indexesSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe indexes: %w", err)
 	}
-	for idxRows.Next() {
+	defer rows.Close()
+
+	var indexes []driver.IndexInfo
+	for rows.Next() {
 		var idx driver.IndexInfo
-		if err := idxRows.Scan(&idx.Name, &idx.Columns, &idx.Unique); err != nil {
-			idxRows.Close()
+		if err := rows.Scan(&idx.Name, &idx.Columns, &idx.Unique, &idx.Primary); err != nil {
 			return nil, fmt.Errorf("scan index: %w", err)
 		}
-		desc.Indexes = append(desc.Indexes, idx)
+		indexes = append(indexes, idx)
 	}
-	idxErr := idxRows.Err()
-	idxRows.Close()
-	if idxErr != nil {
-		return nil, fmt.Errorf("describe indexes iteration: %w", idxErr)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe indexes iteration: %w", err)
 	}
+	return indexes, nil
+}
 
-	fkRows, err := tx.Query(ctx, foreignKeysSQL, schema, table, limit)
+// describeForeignKeys expands one foreignKeysSQL row (a constraint with
+// its full column lists) into one driver.ForeignKeyInfo per column pair,
+// so a single-column FK's shape is unchanged while a composite FK is
+// correctly paired instead of cross-joined.
+//
+// A constraint is only ever included whole: if adding all of its column
+// pairs would exceed limit, that constraint is dropped entirely rather
+// than partially included, since a partial row would carry the full
+// Columns/RefColumns of a constraint it didn't fully represent, with
+// nothing to signal the pair list was cut short.
+func describeForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ForeignKeyInfo, error) {
+	rows, err := tx.Query(ctx, foreignKeysSQL, schema, table, limit)
 	if err != nil {
 		return nil, fmt.Errorf("describe foreign keys: %w", err)
 	}
-	for fkRows.Next() {
-		var fk driver.ForeignKeyInfo
-		if err := fkRows.Scan(&fk.Column, &fk.RefTable, &fk.RefColumn); err != nil {
-			fkRows.Close()
+	defer rows.Close()
+
+	var fks []driver.ForeignKeyInfo
+	for rows.Next() {
+		var constraintName, refSchema, refTable string
+		var columns, refColumns []string
+		if err := rows.Scan(&constraintName, &refSchema, &refTable, &columns, &refColumns); err != nil {
 			return nil, fmt.Errorf("scan foreign key: %w", err)
 		}
-		desc.ForeignKeys = append(desc.ForeignKeys, fk)
+		if len(fks)+len(columns) > limit {
+			return fks, nil
+		}
+		for i := range columns {
+			fks = append(fks, driver.ForeignKeyInfo{
+				Column:         columns[i],
+				RefTable:       refTable,
+				RefColumn:      refColumns[i],
+				ConstraintName: constraintName,
+				RefSchema:      refSchema,
+				Columns:        columns,
+				RefColumns:     refColumns,
+			})
+		}
 	}
-	fkErr := fkRows.Err()
-	fkRows.Close()
-	if fkErr != nil {
-		return nil, fmt.Errorf("describe foreign keys iteration: %w", fkErr)
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe foreign keys iteration: %w", err)
 	}
+	return fks, nil
+}
 
-	return desc, nil
+func describeReverseForeignKeys(ctx context.Context, tx pgx.Tx, schema, table string, limit int) ([]driver.ReferencingForeignKey, error) {
+	rows, err := tx.Query(ctx, reverseForeignKeysSQL, schema, table, limit)
+	if err != nil {
+		return nil, fmt.Errorf("describe reverse foreign keys: %w", err)
+	}
+	defer rows.Close()
+
+	var refs []driver.ReferencingForeignKey
+	for rows.Next() {
+		var r driver.ReferencingForeignKey
+		if err := rows.Scan(&r.ConstraintName, &r.Schema, &r.Table, &r.Columns, &r.RefColumns); err != nil {
+			return nil, fmt.Errorf("scan reverse foreign key: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe reverse foreign keys iteration: %w", err)
+	}
+	return refs, nil
+}
+
+func describePrimaryKey(ctx context.Context, tx pgx.Tx, schema, table string) ([]string, error) {
+	rows, err := tx.Query(ctx, primaryKeySQL, schema, table)
+	if err != nil {
+		return nil, fmt.Errorf("describe primary key: %w", err)
+	}
+	defer rows.Close()
+
+	var pk []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			return nil, fmt.Errorf("scan primary key column: %w", err)
+		}
+		pk = append(pk, col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("describe primary key iteration: %w", err)
+	}
+	return pk, nil
+}
+
+func describeConstraints(ctx context.Context, tx pgx.Tx, schema, table string, limit int) (unique, check []driver.ConstraintInfo, err error) {
+	rows, err := tx.Query(ctx, uniqueAndCheckConstraintsSQL, schema, table, limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("describe constraints: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ci driver.ConstraintInfo
+		var contype string
+		if err := rows.Scan(&ci.Name, &ci.Definition, &contype); err != nil {
+			return nil, nil, fmt.Errorf("scan constraint: %w", err)
+		}
+		switch contype {
+		case "u":
+			unique = append(unique, ci)
+		case "c":
+			check = append(check, ci)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("describe constraints iteration: %w", err)
+	}
+	return unique, check, nil
+}
+
+func describeTableComment(ctx context.Context, tx pgx.Tx, schema, table string) (*string, error) {
+	var comment *string
+	if err := tx.QueryRow(ctx, tableCommentSQL, schema, table).Scan(&comment); err != nil {
+		return nil, fmt.Errorf("describe table comment: %w", err)
+	}
+	return comment, nil
+}
+
+func describeViewDefinition(ctx context.Context, tx pgx.Tx, schema, table string) (*string, error) {
+	var def string
+	err := tx.QueryRow(ctx, viewDefinitionSQL, schema, table).Scan(&def)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("describe view definition: %w", err)
+	}
+	return &def, nil
 }
 
 // Sample validates that schema.table exists, then runs a safely quoted
