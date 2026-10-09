@@ -9,7 +9,7 @@ description: |
   how to read dbcli's JSON output correctly.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # dbcli: read-only Postgres queries
@@ -25,9 +25,19 @@ Run `dbcli version`. If the command isn't found, install it:
 
     go install github.com/diogoaalmeida/dbcli@latest
 
+The binary lands in `$(go env GOPATH)/bin`, which may not be on `PATH`
+yet — if `dbcli version` still isn't found right after installing,
+check that directory is on `PATH` before assuming the install failed.
+
 Then confirm a connection is configured: either `DATABASE_URL` is set,
-or a profile exists (`dbcli profiles list`). If neither is set, ask the
-user for a connection string rather than guessing one. Add it as a
+or a profile exists (`dbcli profiles list`). If neither is set and the
+user implies a local database ("my local postgres"), check for one
+before asking — a running Postgres container (`docker ps`) or the
+default port (`pg_isready -h localhost -p 5432`) is often enough to
+find it and its credentials without making the user repeat information
+they expect you to discover yourself. Only ask the user for a
+connection string when nothing local turns up, or it's ambiguous which
+database they mean — never fabricate or reuse a stale DSN. Add it as a
 profile by piping it through stdin, not as a plain argument:
 
     echo "postgres://user:pass@host:5432/db" | dbcli profiles add <name>

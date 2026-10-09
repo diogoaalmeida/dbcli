@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "dbcli",
   "description": "A read-only SQL CLI for Postgres, built for AI agents. Adds a skill teaching Claude when and how to use it safely.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "diogoaalmeida",
     "url": "https://github.com/diogoaalmeida"
