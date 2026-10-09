@@ -110,19 +110,20 @@ func printUsage() {
 	fmt.Fprint(os.Stderr, `dbcli: read-only SQL for AI agents
 
 Usage:
-  dbcli query "<SQL>" [--profile NAME] [--limit N] [--timeout Ns] [--format json|table]
-  dbcli explain "<SQL>" [--profile NAME] [--analyze] [--timeout Ns] [--format json|table]
-  dbcli schemas [--profile NAME] [--timeout Ns]
-  dbcli schema [--profile NAME] [--schema public] [--timeout Ns]
-  dbcli describe <table> [--profile NAME] [--schema public] [--timeout Ns]
-  dbcli sample <table> [--profile NAME] [--schema public] [--limit 20] [--timeout Ns] [--format json|table]
+  dbcli query "<SQL>" [--profile NAME] [--driver NAME] [--limit N] [--timeout Ns] [--format json|table]
+  dbcli explain "<SQL>" [--profile NAME] [--driver NAME] [--analyze] [--timeout Ns] [--format json|table]
+  dbcli schemas [--profile NAME] [--driver NAME] [--timeout Ns]
+  dbcli schema [--profile NAME] [--driver NAME] [--schema public] [--timeout Ns]
+  dbcli describe <table> [--profile NAME] [--driver NAME] [--schema public] [--timeout Ns]
+  dbcli sample <table> [--profile NAME] [--driver NAME] [--schema public] [--limit 20] [--timeout Ns] [--format json|table]
   dbcli profiles list
   dbcli profiles add <name> [dsn]   (reads dsn from stdin if omitted)
   dbcli profiles remove <name>
   dbcli version
 
 Connection: --profile NAME resolves against ~/.config/dbcli/profiles.env,
-or set DATABASE_URL directly. See README.md for setup, including creating
-a least-privilege read-only database role.
+or set DATABASE_URL directly. --driver NAME overrides the scheme inferred
+from the connection string (e.g. "postgres"). See README.md for setup,
+including creating a least-privilege read-only database role.
 `)
 }
