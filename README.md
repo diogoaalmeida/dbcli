@@ -176,6 +176,11 @@ $ dbcli schema --profile prod --schema shop
 
 `stats_known` is `false` when a table has never been vacuumed or
 analyzed, so `estimated_rows` would otherwise look like a misleading 0.
+For a partitioned table, the parent row is almost always `stats_known:
+false` with `estimated_rows: 0`, even when its partitions hold real
+data: autovacuum only analyzes leaf partitions, never the parent itself.
+Sum the partitions' own `estimated_rows` (listed alongside the parent in
+the same `schema` output) for the real count.
 
 ```bash
 $ dbcli describe orders --profile prod --schema shop
