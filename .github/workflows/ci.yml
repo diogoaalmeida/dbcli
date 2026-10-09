@@ -36,6 +36,9 @@ jobs:
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_PASSWORD: postgres
         ports:
