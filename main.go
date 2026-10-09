@@ -19,41 +19,90 @@ func resolveVersion() string {
 	if version != "dev" {
 		return version
 	}
-	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
-		return bi.Main.Version
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			return bi.Main.Version
+		}
+		if v := vcsVersion(bi); v != "" {
+			return v
+		}
 	}
 	return version
 }
 
+// vcsVersion builds a "dev+<short-revision>[-dirty]" string from the VCS
+// stamp Go embeds automatically (since Go 1.18) in any build run from
+// inside a git checkout. Without this, a plain `go build -o dbcli .`
+// (the README's own documented build method) reports a bare "dev" with
+// no way to tell which commit it came from; every other install path
+// (goreleaser binaries, `go install pkg@version`) already resolves a
+// real version via bi.Main.Version above.
+func vcsVersion(bi *debug.BuildInfo) string {
+	var revision string
+	var modified bool
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if revision == "" {
+		return ""
+	}
+	if len(revision) > 7 {
+		revision = revision[:7]
+	}
+	v := "dev+" + revision
+	if modified {
+		v += "-dirty"
+	}
+	return v
+}
+
 func main() {
-	if len(os.Args) < 2 {
+	os.Exit(run(os.Args[1:]))
+}
+
+// run is main's dispatch logic, factored out so tests can exercise exit
+// codes and the version/help plain-text output without the process
+// actually exiting.
+func run(args []string) int {
+	if len(args) < 1 {
 		printUsage()
-		os.Exit(2)
+		return 2
 	}
 
-	switch os.Args[1] {
+	switch args[0] {
 	case "query":
-		os.Exit(cmd.Query(os.Args[2:]))
+		return cmd.Query(args[1:])
 	case "explain":
-		os.Exit(cmd.Explain(os.Args[2:]))
+		return cmd.Explain(args[1:])
 	case "schemas":
-		os.Exit(cmd.Schemas(os.Args[2:]))
+		return cmd.Schemas(args[1:])
 	case "schema":
-		os.Exit(cmd.Schema(os.Args[2:]))
+		return cmd.Schema(args[1:])
 	case "describe":
-		os.Exit(cmd.Describe(os.Args[2:]))
+		return cmd.Describe(args[1:])
 	case "sample":
-		os.Exit(cmd.Sample(os.Args[2:]))
+		return cmd.Sample(args[1:])
 	case "profiles":
-		os.Exit(cmd.Profiles(os.Args[2:]))
+		return cmd.Profiles(args[1:])
 	case "version", "--version":
+		// version and help are the only two commands that print plain
+		// text instead of the JSON envelope every other command uses:
+		// there's no query/result to report, just a version string or
+		// usage text, so a JSON wrapper would add nothing.
 		fmt.Println("dbcli " + resolveVersion())
+		return 0
 	case "help", "--help", "-h":
 		printUsage()
+		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
 		printUsage()
-		os.Exit(2)
+		return 2
 	}
 }
 
