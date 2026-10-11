@@ -20,7 +20,7 @@ func withStdin(t *testing.T, content string, fn func()) {
 	if _, err := w.WriteString(content); err != nil {
 		t.Fatalf("write to stdin pipe: %v", err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	original := os.Stdin
 	os.Stdin = r
@@ -43,7 +43,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	fn()
 
-	w.Close()
+	_ = w.Close()
 	out, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("read captured stdout: %v", err)

@@ -18,7 +18,7 @@ func TestQuery_ClientSideTimeoutBoundsAHungConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		for {
@@ -28,7 +28,7 @@ func TestQuery_ClientSideTimeoutBoundsAHungConnection(t *testing.T) {
 			}
 			// Accept the TCP connection and then do nothing — never send
 			// the Postgres startup response, never close it.
-			t.Cleanup(func() { c.Close() })
+			t.Cleanup(func() { _ = c.Close() })
 		}
 	}()
 

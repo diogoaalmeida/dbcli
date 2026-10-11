@@ -131,7 +131,7 @@ func stripComments(sql string) (string, []int) {
 			b.WriteRune(' ')
 		case c == '/' && i+1 < n && runes[i+1] == '*':
 			i += 2
-			for i+1 < n && !(runes[i] == '*' && runes[i+1] == '/') {
+			for i+1 < n && (runes[i] != '*' || runes[i+1] != '/') {
 				i++
 			}
 			i = min(i+2, n)

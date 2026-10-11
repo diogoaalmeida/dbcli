@@ -9,6 +9,9 @@ import (
 	"github.com/diogoaalmeida/dbcli/internal/driver"
 )
 
+// defaultSchema is used when the caller passes no schema name.
+const defaultSchema = "public"
+
 const listSchemaSQL = `
 SELECT n.nspname AS schema,
        c.relname AS name,
@@ -55,7 +58,7 @@ func (c *conn) ListSchemas(ctx context.Context, opts driver.QueryOptions) ([]dri
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx, listSchemasSQL, clampLimit(opts.Limit))
 	if err != nil {
@@ -79,14 +82,14 @@ func (c *conn) ListSchemas(ctx context.Context, opts driver.QueryOptions) ([]dri
 
 func (c *conn) ListSchema(ctx context.Context, schema string, opts driver.QueryOptions) ([]driver.TableInfo, error) {
 	if schema == "" {
-		schema = "public"
+		schema = defaultSchema
 	}
 
 	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx, listSchemaSQL, schema, clampLimit(opts.Limit))
 	if err != nil {
@@ -261,14 +264,14 @@ SELECT EXISTS (
 // deadline instead of each query getting its own.
 func (c *conn) DescribeTable(ctx context.Context, schema, table string, opts driver.QueryOptions) (*driver.TableDescription, error) {
 	if schema == "" {
-		schema = "public"
+		schema = defaultSchema
 	}
 
 	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var exists bool
 	if err := tx.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {
@@ -538,14 +541,14 @@ func describeViewDefinition(ctx context.Context, tx pgx.Tx, schema, table string
 // string-interpolated raw.
 func (c *conn) Sample(ctx context.Context, schema, table string, opts driver.QueryOptions) (*driver.QueryResult, error) {
 	if schema == "" {
-		schema = "public"
+		schema = defaultSchema
 	}
 
 	tx, err := c.beginReadOnlyTimeoutTx(ctx, opts.TimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var exists bool
 	if err := tx.QueryRow(ctx, tableExistsSQL, schema, table).Scan(&exists); err != nil {

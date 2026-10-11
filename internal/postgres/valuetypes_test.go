@@ -36,7 +36,7 @@ func TestQuery_RichColumnTypes(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_valuetypes_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_valuetypes_test")
 	})
 
 	result, err := c.Query(ctx, "select id, amount, tags, metadata, payload, is_active, note from dbcli_valuetypes_test", driver.QueryOptions{})

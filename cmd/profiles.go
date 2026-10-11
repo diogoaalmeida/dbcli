@@ -45,7 +45,7 @@ func Profiles(args []string) int {
 		if err := config.Add(args[1], dsn); err != nil {
 			return fail(err, "config_error")
 		}
-		return writeData(map[string]string{"profile": args[1], "action": "saved"})
+		return writeData(map[string]string{flagProfile: args[1], "action": "saved"})
 
 	case "remove":
 		if len(args) < 2 {
@@ -55,7 +55,7 @@ func Profiles(args []string) int {
 		if err := config.Remove(args[1]); err != nil {
 			return fail(err, "config_error")
 		}
-		return writeData(map[string]string{"profile": args[1], "action": "removed"})
+		return writeData(map[string]string{flagProfile: args[1], "action": "removed"})
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown profiles subcommand %q\n", args[0])

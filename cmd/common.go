@@ -17,6 +17,12 @@ import (
 )
 
 const (
+	// Flag names shared by several subcommands.
+	flagProfile = "profile"
+	flagDriver  = "driver"
+	flagTimeout = "timeout"
+	flagFormat  = "format"
+
 	connectTimeout = 10 * time.Second
 
 	// defaultOperationTimeoutSeconds mirrors postgres.defaultTimeoutSeconds

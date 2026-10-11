@@ -17,7 +17,7 @@ func TestSample_ReturnsRowsAndRespectsLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		ddl.Exec(context.Background(), "drop table if exists cmd_sample_test")
+		_, _ = ddl.Exec(context.Background(), "drop table if exists cmd_sample_test")
 	})
 	for i := 0; i < 3; i++ {
 		if _, err := ddl.Exec(ctx, "insert into cmd_sample_test default values"); err != nil {
@@ -58,7 +58,7 @@ func TestSample_FormatTableRendersPlainTextNotJSON(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		ddl.Exec(context.Background(), "drop table if exists cmd_sample_table_fmt_test")
+		_, _ = ddl.Exec(context.Background(), "drop table if exists cmd_sample_table_fmt_test")
 	})
 	if _, err := ddl.Exec(ctx, "insert into cmd_sample_table_fmt_test default values"); err != nil {
 		t.Fatalf("test fixture insert: %v", err)

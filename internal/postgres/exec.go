@@ -79,7 +79,7 @@ func (c *conn) beginReadOnlyTimeoutTx(ctx context.Context, timeoutSeconds int) (
 	}
 
 	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeoutSeconds*1000)); err != nil {
-		tx.Rollback(ctx)
+		_ = tx.Rollback(ctx)
 		return nil, fmt.Errorf("set statement_timeout: %w", err)
 	}
 	return tx, nil
@@ -90,7 +90,7 @@ func (c *conn) run(ctx context.Context, sql string, opts driver.QueryOptions, li
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	return c.runInTx(ctx, tx, sql, limitForTruncation, recordQuery)
 }
@@ -217,7 +217,7 @@ func marshalValue(v any, pgType string) any {
 		return strconv.FormatUint(rv.Uint(), 10)
 	case reflect.Float32, reflect.Float64:
 		return strconv.FormatFloat(rv.Float(), 'f', -1, 64)
-	case reflect.Struct, reflect.Ptr:
+	case reflect.Struct, reflect.Pointer:
 		if valuer, ok := v.(sqldriver.Valuer); ok {
 			if dv, err := valuer.Value(); err == nil {
 				return marshalValue(dv, pgType)
