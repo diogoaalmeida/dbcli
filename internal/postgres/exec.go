@@ -200,17 +200,9 @@ func marshalValue(v any, pgType string) any {
 			// pgx decodes uuid columns into [16]byte, not a string.
 			return formatUUID(rv)
 		}
-		fallthrough
+		return marshalSlice(rv, pgType)
 	case reflect.Slice:
-		// Postgres array type names are the element's name prefixed with
-		// "_" (e.g. "_date", "_uuid"); strip it so elements format the same
-		// way the scalar column type would.
-		elemType := strings.TrimPrefix(pgType, "_")
-		out := make([]any, rv.Len())
-		for i := 0; i < rv.Len(); i++ {
-			out[i] = marshalValue(rv.Index(i).Interface(), elemType)
-		}
-		return out
+		return marshalSlice(rv, pgType)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return strconv.FormatInt(rv.Int(), 10)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -218,24 +210,43 @@ func marshalValue(v any, pgType string) any {
 	case reflect.Float32, reflect.Float64:
 		return strconv.FormatFloat(rv.Float(), 'f', -1, 64)
 	case reflect.Struct, reflect.Pointer:
-		if valuer, ok := v.(sqldriver.Valuer); ok {
-			if dv, err := valuer.Value(); err == nil {
-				return marshalValue(dv, pgType)
-			}
-		}
-		if result, ok := marshalRange(rv, pgType); ok {
-			return result
-		}
-		// No Valuer and not a range: fall back to the struct's exported
-		// fields as a plain JSON object (via json.Marshal on the raw
-		// value) rather than fmt.Sprintf-ing it into an unparseable Go
-		// %v dump. This only affects types dbcli doesn't otherwise
-		// recognize; every type it does recognize (numeric, ranges,
-		// uuid, macaddr, ...) is handled above and never reaches here.
-		return v
+		return marshalStructLike(v, rv, pgType)
 	default:
 		return v
 	}
+}
+
+// marshalSlice formats each element of an array or slice value.
+func marshalSlice(rv reflect.Value, pgType string) any {
+	// Postgres array type names are the element's name prefixed with
+	// "_" (e.g. "_date", "_uuid"); strip it so elements format the same
+	// way the scalar column type would.
+	elemType := strings.TrimPrefix(pgType, "_")
+	out := make([]any, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		out[i] = marshalValue(rv.Index(i).Interface(), elemType)
+	}
+	return out
+}
+
+// marshalStructLike handles struct and pointer values: driver.Valuers,
+// then ranges, then falls back to the raw value.
+func marshalStructLike(v any, rv reflect.Value, pgType string) any {
+	if valuer, ok := v.(sqldriver.Valuer); ok {
+		if dv, err := valuer.Value(); err == nil {
+			return marshalValue(dv, pgType)
+		}
+	}
+	if result, ok := marshalRange(rv, pgType); ok {
+		return result
+	}
+	// No Valuer and not a range: fall back to the struct's exported
+	// fields as a plain JSON object (via json.Marshal on the raw
+	// value) rather than fmt.Sprintf-ing it into an unparseable Go
+	// %v dump. This only affects types dbcli doesn't otherwise
+	// recognize; every type it does recognize (numeric, ranges,
+	// uuid, macaddr, ...) is handled above and never reaches here.
+	return v
 }
 
 // formatUUID renders a [16]byte reflect.Value in canonical
