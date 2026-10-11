@@ -49,6 +49,7 @@ func WrapWithLimit(sql string, limit int) string {
 // returned string) of every semicolon encountered outside of those quoted
 // contexts, so the caller can detect statement-separating semicolons versus
 // ones embedded in string literals.
+//
 //nolint:gocyclo // single-pass lexer; splitting it would obscure the safety-critical quoting state
 func stripComments(sql string) (string, []int) {
 	runes := []rune(sql)
