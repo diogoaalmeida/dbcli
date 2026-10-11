@@ -20,7 +20,7 @@ func TestQuery_MacaddrRendersAsCanonicalString(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_macaddr_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_macaddr_test")
 	})
 	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_macaddr_test values ('08:00:2b:01:02:03')"); err != nil {
 		t.Fatalf("test fixture insert: %v", err)

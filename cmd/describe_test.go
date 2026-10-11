@@ -19,7 +19,7 @@ func ddlConn(t *testing.T, dsn string) *pgx.Conn {
 	if err != nil {
 		t.Fatalf("pgx.Connect for test fixture setup: %v", err)
 	}
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	return conn
 }
 
@@ -33,7 +33,7 @@ func TestDescribe_ReturnsDataEnvelopeForARealTable(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		ddl.Exec(context.Background(), "drop table if exists cmd_describe_test")
+		_, _ = ddl.Exec(context.Background(), "drop table if exists cmd_describe_test")
 	})
 
 	out := captureStdout(t, func() {

@@ -20,7 +20,7 @@ func TestBeginReadOnlyTimeoutTx_EnforcesStatementTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("beginReadOnlyTimeoutTx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, "select pg_sleep(2)"); err == nil {
 		t.Fatalf("expected statement_timeout to cancel a query slower than the timeout")
@@ -35,7 +35,7 @@ func TestListSchema_RespectsLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_limit_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_limit_test")
 	})
 
 	tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{Limit: 1})
@@ -55,7 +55,7 @@ func TestListSchemas_RespectsLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop schema if exists dbcli_schemas_limit_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop schema if exists dbcli_schemas_limit_test")
 	})
 
 	schemas, err := c.ListSchemas(ctx, driver.QueryOptions{Limit: 1})
@@ -75,7 +75,7 @@ func TestDescribeTable_RespectsLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_limit_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_limit_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_describe_limit_test", driver.QueryOptions{Limit: 1})
@@ -100,7 +100,7 @@ func TestDescribeTable_ReverseForeignKeysRespectLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_revfk_limit_child_a_test, dbcli_revfk_limit_child_b_test, dbcli_revfk_limit_parent_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_revfk_limit_child_a_test, dbcli_revfk_limit_child_b_test, dbcli_revfk_limit_parent_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_revfk_limit_parent_test", driver.QueryOptions{Limit: 1})
@@ -124,7 +124,7 @@ func TestDescribeTable_CompositePrimaryKeyIgnoresLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_pk_limit_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_pk_limit_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_pk_limit_test", driver.QueryOptions{Limit: 1})
@@ -163,7 +163,7 @@ func TestDescribeTable_CompositeForeignKeyRespectsLimit(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cap_child_test, dbcli_fk_cap_parent_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cap_child_test, dbcli_fk_cap_parent_test")
 	})
 
 	t.Run("limit too small to fit the whole constraint drops it entirely", func(t *testing.T) {
@@ -203,8 +203,8 @@ func TestDescribeTable_EnumValuesRespectLimit(t *testing.T) {
 		t.Fatalf("create type: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_enum_limit_test")
-		c.pgxConn.Exec(context.Background(), "drop type if exists dbcli_enum_limit_test_status")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_enum_limit_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop type if exists dbcli_enum_limit_test_status")
 	})
 	if _, err := c.pgxConn.Exec(ctx, "create table dbcli_enum_limit_test (status dbcli_enum_limit_test_status)"); err != nil {
 		t.Fatalf("create table: %v", err)

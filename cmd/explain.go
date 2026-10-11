@@ -11,13 +11,13 @@ import (
 
 func Explain(args []string) int {
 	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
-	profile := fs.String("profile", "", "named connection profile")
-	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
+	profile := fs.String(flagProfile, "", "named connection profile")
+	driverFlag := fs.String(flagDriver, "", "override driver scheme (default: inferred from connection string)")
 	analyze := fs.Bool("analyze", false, "run EXPLAIN ANALYZE (executes the query; plain EXPLAIN does not)")
-	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
-	format := fs.String("format", "json", "output format: json|table")
+	timeout := fs.Int(flagTimeout, 0, "statement timeout in seconds (default 5)")
+	format := fs.String(flagFormat, "json", "output format: json|table")
 	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
-		"profile": false, "driver": false, "analyze": true, "timeout": false, "format": false,
+		flagProfile: false, flagDriver: false, "analyze": true, flagTimeout: false, flagFormat: false,
 	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -34,7 +34,7 @@ func Explain(args []string) int {
 	if err != nil {
 		return fail(err, "connection_error")
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	result, err := conn.Explain(ctx, sql, driver.QueryOptions{Analyze: *analyze, TimeoutSeconds: *timeout})
 	if err != nil {

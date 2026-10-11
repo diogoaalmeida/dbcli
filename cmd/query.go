@@ -11,13 +11,13 @@ import (
 
 func Query(args []string) int {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
-	profile := fs.String("profile", "", "named connection profile")
-	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
+	profile := fs.String(flagProfile, "", "named connection profile")
+	driverFlag := fs.String(flagDriver, "", "override driver scheme (default: inferred from connection string)")
 	limit := fs.Int("limit", 0, "max rows to return (default 500, hard ceiling 5000)")
-	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
-	format := fs.String("format", "json", "output format: json|table")
+	timeout := fs.Int(flagTimeout, 0, "statement timeout in seconds (default 5)")
+	format := fs.String(flagFormat, "json", "output format: json|table")
 	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
-		"profile": false, "driver": false, "limit": false, "timeout": false, "format": false,
+		flagProfile: false, flagDriver: false, "limit": false, flagTimeout: false, flagFormat: false,
 	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -34,7 +34,7 @@ func Query(args []string) int {
 	if err != nil {
 		return fail(err, "connection_error")
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	result, err := conn.Query(ctx, sql, driver.QueryOptions{Limit: *limit, TimeoutSeconds: *timeout})
 	if err != nil {

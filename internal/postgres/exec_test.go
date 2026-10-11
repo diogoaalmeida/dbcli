@@ -24,7 +24,7 @@ func testConn(t *testing.T) *conn {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { c.Close(context.Background()) })
+	t.Cleanup(func() { _ = c.Close(context.Background()) })
 	return c.(*conn)
 }
 
@@ -96,7 +96,7 @@ func TestQuery_TableShorthandSurvivesLimitWrapping(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_table_shorthand_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_table_shorthand_test")
 	})
 	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_table_shorthand_test (name) values ('a'), ('b')"); err != nil {
 		t.Fatalf("test fixture insert: %v", err)
@@ -146,7 +146,7 @@ func TestClassifierGap_WriteHidingCTEIsBlockedByReadOnlyTx(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_classifier_gap_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_classifier_gap_test")
 	})
 	for i := 0; i < 2; i++ {
 		if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_classifier_gap_test default values"); err != nil {

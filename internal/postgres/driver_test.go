@@ -48,7 +48,7 @@ func TestConnect_ErrorNeverLeaksThePassword(t *testing.T) {
 			t.Fatalf("listen: %v", err)
 		}
 		addr := ln.Addr().String()
-		ln.Close()
+		_ = ln.Close()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -71,7 +71,7 @@ func TestConnect_ErrorNeverLeaksThePassword(t *testing.T) {
 func testDBHost(t *testing.T) string {
 	t.Helper()
 	c := testConn(t)
-	t.Cleanup(func() { c.Close(context.Background()) })
+	t.Cleanup(func() { _ = c.Close(context.Background()) })
 	// c is already connected; we just need a real, reachable host:port to
 	// point a *bad-credential* connection at, so reuse whatever testConn
 	// resolved rather than re-parsing the DSN here.

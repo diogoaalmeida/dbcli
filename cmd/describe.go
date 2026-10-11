@@ -11,12 +11,12 @@ import (
 
 func Describe(args []string) int {
 	fs := flag.NewFlagSet("describe", flag.ContinueOnError)
-	profile := fs.String("profile", "", "named connection profile")
-	driverFlag := fs.String("driver", "", "override driver scheme (default: inferred from connection string)")
+	profile := fs.String(flagProfile, "", "named connection profile")
+	driverFlag := fs.String(flagDriver, "", "override driver scheme (default: inferred from connection string)")
 	schema := fs.String("schema", "public", "schema the table belongs to")
-	timeout := fs.Int("timeout", 0, "statement timeout in seconds (default 5)")
+	timeout := fs.Int(flagTimeout, 0, "statement timeout in seconds (default 5)")
 	flagArgs, positional := splitFlagsAndPositional(args, map[string]bool{
-		"profile": false, "driver": false, "schema": false, "timeout": false,
+		flagProfile: false, flagDriver: false, "schema": false, flagTimeout: false,
 	})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -33,7 +33,7 @@ func Describe(args []string) int {
 	if err != nil {
 		return fail(err, "connection_error")
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	desc, err := conn.DescribeTable(ctx, *schema, table, driver.QueryOptions{TimeoutSeconds: *timeout})
 	if err != nil {

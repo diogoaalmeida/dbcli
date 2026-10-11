@@ -76,27 +76,27 @@ func WriteQueryResultTable(w io.Writer, r *driver.QueryResult) error {
 
 	for i, col := range r.Columns {
 		if i > 0 {
-			fmt.Fprint(tw, "\t")
+			_, _ = fmt.Fprint(tw, "\t")
 		}
-		fmt.Fprint(tw, col.Name)
+		_, _ = fmt.Fprint(tw, col.Name)
 	}
-	fmt.Fprintln(tw)
+	_, _ = fmt.Fprintln(tw)
 
 	for _, row := range r.Rows {
 		for i, col := range r.Columns {
 			if i > 0 {
-				fmt.Fprint(tw, "\t")
+				_, _ = fmt.Fprint(tw, "\t")
 			}
-			fmt.Fprint(tw, formatCell(row[col.Name]))
+			_, _ = fmt.Fprint(tw, formatCell(row[col.Name]))
 		}
-		fmt.Fprintln(tw)
+		_, _ = fmt.Fprintln(tw)
 	}
 
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "(%d row(s), %dms%s)\n", r.RowCount, r.DurationMS, truncatedSuffix(r.Truncated))
-	return nil
+	_, err := fmt.Fprintf(w, "(%d row(s), %dms%s)\n", r.RowCount, r.DurationMS, truncatedSuffix(r.Truncated))
+	return err
 }
 
 func truncatedSuffix(truncated bool) string {

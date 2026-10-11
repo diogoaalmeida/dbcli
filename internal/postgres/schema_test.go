@@ -40,7 +40,7 @@ func TestListSchema_ListsTableInGivenSchema(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_list_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_schema_list_test")
 	})
 
 	tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{})
@@ -78,7 +78,7 @@ func TestDescribeTable_ReturnsColumnsIndexesAndForeignKeys(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_child_test, dbcli_describe_parent_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_describe_child_test, dbcli_describe_parent_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_describe_child_test", driver.QueryOptions{})
@@ -119,7 +119,7 @@ func TestSample_ReturnsRowsAndRespectsLimit(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_sample_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_sample_test")
 	})
 
 	result, err := c.Sample(ctx, "public", "dbcli_sample_test", driver.QueryOptions{Limit: 2})
@@ -162,7 +162,7 @@ func TestDescribeTable_CompositeForeignKeyPairsColumnsCorrectly(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_child_test, dbcli_fk_parent_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_child_test, dbcli_fk_parent_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_child_test", driver.QueryOptions{})
@@ -211,8 +211,8 @@ func TestDescribeTable_CrossSchemaForeignKeyReportsRefSchema(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cross_child_test")
-		c.pgxConn.Exec(context.Background(), "drop schema if exists dbcli_fk_other_schema_test cascade")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fk_cross_child_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop schema if exists dbcli_fk_other_schema_test cascade")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_fk_cross_child_test", driver.QueryOptions{})
@@ -244,7 +244,7 @@ func TestDescribeTable_ReturnsReferencedBy(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_revfk_child_test, dbcli_revfk_parent_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_revfk_child_test, dbcli_revfk_parent_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_revfk_parent_test", driver.QueryOptions{})
@@ -279,7 +279,7 @@ func TestDescribeTable_ReturnsPrimaryKeyUniqueAndCheckConstraints(t *testing.T) 
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_constraints_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_constraints_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_constraints_test", driver.QueryOptions{})
@@ -333,7 +333,7 @@ func TestDescribeTable_CommentsSurviveADroppedColumn(t *testing.T) {
 		t.Fatalf("comment on column: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_comment_dropped_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_comment_dropped_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_comment_dropped_test", driver.QueryOptions{})
@@ -367,8 +367,8 @@ func TestDescribeTable_ReturnsEnumValuesForEnumColumn(t *testing.T) {
 		t.Fatalf("create type: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_enum_col_test")
-		c.pgxConn.Exec(context.Background(), "drop type if exists dbcli_enum_test_status")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_enum_col_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop type if exists dbcli_enum_test_status")
 	})
 	if _, err := c.pgxConn.Exec(ctx, "create table dbcli_enum_col_test (id serial primary key, status dbcli_enum_test_status)"); err != nil {
 		t.Fatalf("create table: %v", err)
@@ -411,8 +411,8 @@ func TestDescribeTable_ReturnsViewDefinitionForView(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop view if exists dbcli_view_test")
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_view_base_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop view if exists dbcli_view_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_view_base_test")
 	})
 
 	viewDesc, err := c.DescribeTable(ctx, "public", "dbcli_view_test", driver.QueryOptions{})
@@ -448,8 +448,8 @@ func TestDescribeTable_DescribesMaterializedView(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop materialized view if exists dbcli_matview_test")
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_matview_base_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop materialized view if exists dbcli_matview_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_matview_base_test")
 	})
 
 	desc, err := c.DescribeTable(ctx, "public", "dbcli_matview_test", driver.QueryOptions{})
@@ -474,7 +474,7 @@ func TestListSchema_IncludesPartitionedTable(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_partitioned_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_partitioned_test")
 	})
 
 	tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{})
@@ -518,7 +518,7 @@ func TestListSchema_PartitionedTableParentNeverShowsStatsKnown(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_part_stats_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_part_stats_test")
 	})
 	if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_part_stats_test select g, '2020-06-01'::date from generate_series(1,50) g"); err != nil {
 		t.Fatalf("test fixture insert: %v", err)
@@ -598,9 +598,9 @@ func TestListSchema_IncludesForeignTable(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop foreign table if exists dbcli_foreign_table_test")
-		c.pgxConn.Exec(context.Background(), "drop server if exists dbcli_fdw_test_server cascade")
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fdw_target_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop foreign table if exists dbcli_foreign_table_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop server if exists dbcli_fdw_test_server cascade")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_fdw_target_test")
 	})
 
 	tables, err := c.ListSchema(ctx, "public", driver.QueryOptions{})
@@ -636,7 +636,7 @@ func TestListSchema_StatsKnownReflectsAnalyzeState(t *testing.T) {
 		t.Fatalf("test fixture setup: %v", err)
 	}
 	t.Cleanup(func() {
-		c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_stats_test")
+		_, _ = c.pgxConn.Exec(context.Background(), "drop table if exists dbcli_stats_test")
 	})
 	for i := 0; i < 3; i++ {
 		if _, err := c.pgxConn.Exec(ctx, "insert into dbcli_stats_test default values"); err != nil {
