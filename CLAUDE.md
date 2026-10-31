@@ -5,8 +5,19 @@ for how to *use* the compiled `dbcli` tool from another project, see
 `README.md` or the bundled `skills/dbcli/SKILL.md` instead — this file
 is for developing dbcli itself.
 
-It's also symlinked as `AGENTS.md` for any other tool that looks for
-that name instead — same content either way.
+It's also symlinked as `AGENTS.md` for Codex and other agents that look
+for that name — same development instructions either way.
+
+## Agent integrations
+
+- `AGENTS.md` / `CLAUDE.md` describe how to develop this repository.
+- `skills/dbcli/` teaches agents how to use the compiled CLI against a
+  database; keep these instructions shared between agents.
+- `.agents/skills/dbcli` links to `skills/dbcli/` for Codex discovery.
+  Edit the shared skill and its references rather than adding copies.
+- `.claude-plugin/` packages that same skill for Claude Code.
+- See README.md's "Use with AI agents" section for installation outside
+  this repository. Installing a skill does not install the Go binary.
 
 ## What this is
 
@@ -84,6 +95,6 @@ docker run -d --name dbcli-dev -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgr
 - `internal/postgres/` — the only driver implementation today.
 - `internal/config/`, `internal/output/` — profile storage, JSON/table
   rendering.
-- `.claude-plugin/`, `skills/` — the Claude Code plugin bundled in this
-  same repo (see `skills/dbcli/SKILL.md`), so dbcli's GitHub repo is
-  directly installable as a plugin.
+- `skills/` — shared CLI usage skill and output reference.
+- `.agents/skills/` — Codex skill discovery through a relative symlink.
+- `.claude-plugin/` — Claude Code plugin and marketplace manifests.

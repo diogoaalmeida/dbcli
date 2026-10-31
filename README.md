@@ -47,6 +47,45 @@ cd dbcli
 go build -o dbcli .
 ```
 
+## Use with AI agents
+
+The CLI works with any agent that can run shell commands. The shared
+[dbcli skill](skills/dbcli/SKILL.md) teaches database discovery, connection
+setup, and how to interpret results. Install the binary separately using
+the instructions above.
+
+### Codex
+
+When working in this repository, Codex reads the development instructions
+from [AGENTS.md](AGENTS.md). It discovers the CLI usage skill through
+`.agents/skills/dbcli`, a relative symlink to `skills/dbcli/` that also
+includes the output reference. Invoke it with `$dbcli`, for example:
+
+```text
+$dbcli list the schemas in my local Postgres database
+```
+
+To install the skill for use in other projects, ask Codex:
+
+```text
+$skill-installer install the skill from https://github.com/diogoaalmeida/dbcli/tree/main/skills/dbcli
+```
+
+For a manual project-scoped install, copy the entire `skills/dbcli/`
+directory from this checkout into your project's `.agents/skills/dbcli/`,
+including `references/`. To make it available across projects instead,
+copy it into `~/.agents/skills/dbcli/`. Choose one scope to avoid duplicate
+skills. Restart Codex if the skill does not appear.
+
+These paths and symlink support follow the official
+[Codex skills documentation](https://learn.chatgpt.com/docs/build-skills).
+
+### Claude Code
+
+This repository includes a Claude Code [plugin manifest](.claude-plugin/plugin.json)
+and [marketplace manifest](.claude-plugin/marketplace.json). Both agent
+integrations use the same `skills/dbcli/` instructions.
+
 ## Set up a least-privilege role
 
 Don't point dbcli at a superuser connection string. Create a role that can
