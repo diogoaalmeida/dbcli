@@ -21,8 +21,10 @@ envelope on stdout (except `version`/`help`, which print plain text).
 
 ## Check availability first
 
-Run `dbcli version`. If the command isn't found, install a pinned
-release. With Go available:
+Run `dbcli version`. If the command isn't found, tell the user dbcli
+isn't installed and ask before installing it; don't install software
+on their machine without that confirmation. Once they agree, install a
+pinned release. With Go available:
 
     go install github.com/diogoaalmeida/dbcli@v1.1.0
 
