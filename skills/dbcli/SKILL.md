@@ -5,8 +5,10 @@ description: |
   or sample a Postgres database, asks what schemas or tables exist, wants
   to check a table's structure or a column's type, or wants to run a SQL
   query against Postgres, and the dbcli CLI tool is available or should be
-  installed. Covers the install check, the safe discovery workflow, and
-  how to read dbcli's JSON output correctly.
+  installed. dbcli enforces read-only access itself (SQL classifier plus
+  a READ ONLY transaction), with a row cap and statement timeout. Covers
+  the install check, the safe discovery workflow, and how to read
+  dbcli's JSON output correctly.
 license: MIT
 metadata:
   version: "1.1.0"
