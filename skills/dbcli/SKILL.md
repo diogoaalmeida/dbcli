@@ -21,13 +21,21 @@ envelope on stdout (except `version`/`help`, which print plain text).
 
 ## Check availability first
 
-Run `dbcli version`. If the command isn't found, install it:
+Run `dbcli version`. If the command isn't found, install a pinned
+release. With Go available:
 
-    go install github.com/diogoaalmeida/dbcli@latest
+    go install github.com/diogoaalmeida/dbcli@v1.1.0
 
 The binary lands in `$(go env GOPATH)/bin`, which may not be on `PATH`
 yet — if `dbcli version` still isn't found right after installing,
 check that directory is on `PATH` before assuming the install failed.
+
+Without Go, download the prebuilt archive for the user's OS and
+architecture from the v1.1.0 release
+(https://github.com/diogoaalmeida/dbcli/releases/tag/v1.1.0, named
+`dbcli_<os>_<arch>.tar.gz`, or `.zip` on Windows), verify it against
+`checksums.txt` from the same release, and put the `dbcli` binary on
+`PATH`.
 
 Then confirm a connection is configured: either `DATABASE_URL` is set,
 or a profile exists (`dbcli profiles list`). If neither is set and the
