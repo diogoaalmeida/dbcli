@@ -5,8 +5,10 @@ description: |
   or sample a Postgres database, asks what schemas or tables exist, wants
   to check a table's structure or a column's type, or wants to run a SQL
   query against Postgres, and the dbcli CLI tool is available or should be
-  installed. Covers the install check, the safe discovery workflow, and
-  how to read dbcli's JSON output correctly.
+  installed. dbcli enforces read-only access itself (SQL classifier plus
+  a READ ONLY transaction), with a row cap and statement timeout. Covers
+  the install check, the safe discovery workflow, and how to read
+  dbcli's JSON output correctly.
 license: MIT
 metadata:
   version: "1.1.0"
@@ -21,13 +23,23 @@ envelope on stdout (except `version`/`help`, which print plain text).
 
 ## Check availability first
 
-Run `dbcli version`. If the command isn't found, install it:
+Run `dbcli version`. If the command isn't found, tell the user dbcli
+isn't installed and ask before installing it; don't install software
+on their machine without that confirmation. Once they agree, install a
+pinned release. With Go available:
 
-    go install github.com/diogoaalmeida/dbcli@latest
+    go install github.com/diogoaalmeida/dbcli@v1.1.0
 
 The binary lands in `$(go env GOPATH)/bin`, which may not be on `PATH`
 yet — if `dbcli version` still isn't found right after installing,
 check that directory is on `PATH` before assuming the install failed.
+
+Without Go, download the prebuilt archive for the user's OS and
+architecture from the v1.1.0 release
+(https://github.com/diogoaalmeida/dbcli/releases/tag/v1.1.0, named
+`dbcli_<os>_<arch>.tar.gz`, or `.zip` on Windows), verify it against
+`checksums.txt` from the same release, and put the `dbcli` binary on
+`PATH`.
 
 Then confirm a connection is configured: either `DATABASE_URL` is set,
 or a profile exists (`dbcli profiles list`). If neither is set and the
